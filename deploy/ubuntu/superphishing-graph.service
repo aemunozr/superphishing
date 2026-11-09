@@ -1,0 +1,30 @@
+[Unit]
+Description=SuperPhishing: importa MSG reportados desde Microsoft Graph
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=superphishing
+Group=superphishing
+WorkingDirectory=/opt/superphishing
+# Credenciales GRAPH_* (archivo 0640 root:superphishing, fuera del repositorio).
+EnvironmentFile=/etc/superphishing/graph.env
+ExecStart=/opt/superphishing/.venv/bin/python engine/graph_import.py
+# Evita que una pasada colgada se solape indefinidamente con la siguiente.
+TimeoutStartSec=30min
+
+# Endurecimiento: solo puede escribir expedientes y storage.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/superphishing/cases /opt/superphishing/storage
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictSUIDSGID=yes
+LockPersonality=yes
+UMask=0027

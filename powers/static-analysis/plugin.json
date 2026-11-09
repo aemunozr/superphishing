@@ -1,0 +1,20 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "static-analysis",
+  "version": "1.3.0",
+  "description": "Performs evidence-led static inspection of suspicious email attachments and files.",
+  "author": {
+    "name": "Security Analysis Pipeline"
+  },
+  "keywords": [
+    "static analysis",
+    "malware analysis",
+    "file analysis",
+    "attachment analysis",
+    "REMnux",
+    "PDF analysis",
+    "Office macros",
+    "PE analysis",
+    "script analysis"
+  ]
+}

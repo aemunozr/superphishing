@@ -1,0 +1,16 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "remnux": {
+      "type": "streamable-http",
+      "url": "https://mcp.teamprimate.com/remnux/mcp",
+      "headers": {
+        "Authorization": "Bearer <TOKEN>"
+      }
+    },
+    "remnux-docs": {
+      "type": "streamable-http",
+      "url": "https://docs.remnux.org/~gitbook/mcp"
+    }
+  }
+}

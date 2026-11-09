@@ -1,0 +1,17 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "dynamic-analysis",
+  "version": "1.3.0",
+  "description": "Guides controlled, explicitly authorized dynamic analysis using the configured x64dbg MCP; Procmon integration remains pending its server configuration.",
+  "author": {
+    "name": "Security Analysis Pipeline"
+  },
+  "keywords": [
+    "dynamic analysis",
+    "x64dbg",
+    "debugging",
+    "runtime behavior",
+    "sandbox analysis",
+    "behavioral analysis"
+  ]
+}

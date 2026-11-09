@@ -1,0 +1,19 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "ghidra": {
+      "type": "streamable-http",
+      "url": "https://mcp.teamprimate.com/ghidra/mcp",
+      "headers": {
+        "Authorization": "Basic <BASE64_USUARIO:CONTRASEÑA>"
+      }
+    },
+    "radare2": {
+      "type": "streamable-http",
+      "url": "https://mcp.teamprimate.com/radare2/mcp",
+      "headers": {
+        "Authorization": "Bearer <TOKEN>"
+      }
+    }
+  }
+}

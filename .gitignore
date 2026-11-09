@@ -1,0 +1,28 @@
+# Case evidence and derived content
+cases/
+storage/*.db
+storage/*.db-wal
+storage/*.db-shm
+storage/graph_inbox/
+reports/
+*.msg
+*.eml
+*.msg.part
+*.eml.part
+
+# Local secrets; keep project MCP file local if endpoints/credentials are added
+.env
+.env.*
+!.env.example
+
+# Configuración MCP con credenciales reales: se versiona solo mcp.json.example
+.kiro/settings/mcp.json
+powers/*/mcp.json
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.DS_Store

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "reverse-engineering",
+  "version": "1.3.0",
+  "description": "Performs focused static reverse engineering using the available Ghidra and Radare2 MCP capabilities.",
+  "author": {
+    "name": "Security Analysis Pipeline"
+  },
+  "keywords": [
+    "reverse engineering",
+    "Ghidra",
+    "disassembly",
+    "decompiler",
+    "binary analysis",
+    "imports",
+    "functions",
+    "cross references",
+    "strings analysis",
+    "Radare2",
+    "r2"
+  ]
+}

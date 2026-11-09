@@ -1,0 +1,43 @@
+{
+  "mcpServers": {
+    "remnux": {
+      "url": "https://mcp.teamprimate.com/remnux/mcp",
+      "headers": {
+        "Authorization": "Bearer <TOKEN>"
+      },
+      "disabled": false
+    },
+    "remnux-docs": {
+      "url": "https://docs.remnux.org/~gitbook/mcp",
+      "disabled": false
+    },
+    "ghidra": {
+      "url": "https://mcp.teamprimate.com/ghidra/mcp",
+      "headers": {
+        "Authorization": "Basic <BASE64_USUARIO:CONTRASEÑA>"
+      },
+      "disabled": false
+    },
+    "radare2": {
+      "url": "https://mcp.teamprimate.com/radare2/mcp",
+      "headers": {
+        "Authorization": "Bearer <TOKEN>"
+      },
+      "disabled": false
+    },
+    "darknet": {
+      "url": "https://mcp.teamprimate.com/darknet/mcp",
+      "headers": {
+        "Authorization": "Bearer <TOKEN>"
+      },
+      "disabled": false
+    },
+    "x64dbg": {
+      "url": "https://mcp.teamprimate.com/x64dbg/mcp",
+      "headers": {
+        "Authorization": "Basic <BASE64_USUARIO:CONTRASEÑA>"
+      },
+      "disabled": false
+    }
+  }
+}

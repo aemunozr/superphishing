@@ -1,0 +1,12 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "x64dbg": {
+      "type": "streamable-http",
+      "url": "https://mcp.teamprimate.com/x64dbg/mcp",
+      "headers": {
+        "Authorization": "Basic <BASE64_USUARIO:CONTRASEÑA>"
+      }
+    }
+  }
+}

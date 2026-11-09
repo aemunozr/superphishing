@@ -1,0 +1,13 @@
+[Unit]
+Description=SuperPhishing: sondeo periódico del buzón de reportes
+
+[Timer]
+OnBootSec=2min
+# Intervalo de sondeo: cambiar aquí (p. ej. 1min, 5min, 15min) y ejecutar
+#   sudo systemctl daemon-reload && sudo systemctl restart superphishing-graph.timer
+OnUnitInactiveSec=5min
+AccuracySec=30s
+Persistent=true
+
+[Install]
+WantedBy=timers.target
