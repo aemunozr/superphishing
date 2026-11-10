@@ -8,6 +8,7 @@ storage/graph_inbox/
 storage/*.json
 storage/*.jsonl
 storage/*.err
+storage/*.txt
 reports/
 *.msg
 *.eml
