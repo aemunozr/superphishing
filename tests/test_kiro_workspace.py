@@ -45,8 +45,10 @@ class KiroWorkspaceTests(unittest.TestCase):
             self.assertEqual(set(mcp["mcpServers"]), servers)
             self.assertIn("agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcp["$schema"])
             for server in mcp["mcpServers"].values():
+                # Esquema Agent Plugins 1.0.0: 'type' obligatorio, sin campos adicionales como 'disabled'.
+                self.assertEqual(server["type"], "streamable-http")
                 self.assertIn("url", server)
-                self.assertFalse(server.get("disabled", True))
+                self.assertLessEqual(set(server), {"type", "url", "headers"})
 
     def test_exposure_hunting_power_is_read_only_and_lean(self):
         directory = ROOT / "powers" / "exposure-hunting"
