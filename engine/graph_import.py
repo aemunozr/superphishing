@@ -342,8 +342,56 @@ def poll(client: GraphClient, mailbox: str, folder: str, staging: Path, output: 
             "checkpoint_utc": get_checkpoint(db_path, source), "counts": counts, "results": results}
 
 
+def load_env_file(path: Path, environ=os.environ, prefixes: tuple = ("GRAPH_",)) -> list[str]:
+    """Carga solo variables con los prefijos indicados de un archivo KEY=VALUE. No pisa el entorno ni imprime valores.
+
+    Devuelve los nombres cargados (sin valores) para diagnóstico.
+    """
+    loaded = []
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        if line.startswith("export "):
+            line = line[len("export "):].lstrip()
+        key, value = line.split("=", 1)
+        key, value = key.strip(), value.strip()
+        if not key.startswith(prefixes):
+            continue
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        if value and not environ.get(key):
+            environ[key] = value
+            loaded.append(key)
+    return loaded
+
+
+ENV_FILE_HELP = "Archivo KEY=VALUE del que cargar solo variables GRAPH_* (p. ej. .env); no pisa el entorno"
+
+
+def preload_env_file() -> bool:
+    """Procesa --env-file antes de construir el parser, cuyos defaults leen os.environ.
+
+    Devuelve False si el archivo indicado no existe.
+    """
+    pre = argparse.ArgumentParser(add_help=False)
+    pre.add_argument("--env-file", type=Path)
+    pre_args, _ = pre.parse_known_args()
+    if not pre_args.env_file:
+        return True
+    if not pre_args.env_file.is_file():
+        print(f"ERROR: no existe el archivo de entorno {pre_args.env_file}", file=sys.stderr)
+        return False
+    loaded = load_env_file(pre_args.env_file)
+    print(f"Variables cargadas de {pre_args.env_file}: {', '.join(loaded) or 'ninguna'}", file=sys.stderr)
+    return True
+
+
 def main() -> int:
+    if not preload_env_file():
+        return 2
     parser = argparse.ArgumentParser(description="Importa los MSG adjuntos de correos reportados en un buzón vía Microsoft Graph (sondeo incremental).")
+    parser.add_argument("--env-file", type=Path, help=ENV_FILE_HELP)
     parser.add_argument("--mailbox", default=os.environ.get("GRAPH_MAILBOX"), help="UPN o id del buzón (GRAPH_MAILBOX)")
     parser.add_argument("--folder", default=os.environ.get("GRAPH_FOLDER") or "inbox", help="Carpeta o id (GRAPH_FOLDER, por defecto inbox)")
     parser.add_argument("--since", help="Ignora el checkpoint y procesa desde esta fecha ISO 8601 UTC, p. ej. 2026-11-01T00:00:00Z")
@@ -376,4 +424,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # En Windows la salida redirigida usa cp1252 y falla con emojis en asuntos; se fuerza UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     raise SystemExit(main())

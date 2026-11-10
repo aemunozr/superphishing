@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "falcon-mcp": {
+      "command": "uvx",
+      "args": ["--env-file", "<RUTA_ABSOLUTA>/falcon.env", "falcon-mcp"],
+      "env": {
+        "FALCON_MCP_READ_ONLY": "true",
+        "FALCON_MCP_DYNAMIC": "true",
+        "FALCON_MCP_MODULES": "detections,hosts,intel,ngsiem"
+      }
+    },
+    "cisco-secure-access": {
+      "type": "streamable-http",
+      "url": "http://127.0.0.1:8000/mcp",
+      "headers": {
+        "Authorization": "Bearer ${CISCO_SA_MCP_TOKEN}"
+      }
+    }
+  }
+}

@@ -1,6 +1,8 @@
 # Instalar SIEMPRE dentro del venv del proyecto:
-#   python3 -m venv .venv
-#   .venv/bin/python -m pip install -r requirements.txt
+#   macOS / Ubuntu:  python3 -m venv .venv
+#                    .venv/bin/python -m pip install -r requirements.txt
+#   Windows (cmd):   py -3 -m venv .venv
+#                    .venv\Scripts\python -m pip install -r requirements.txt
 #
 # extract-msg convierte el MSG a EML cuando el colector no aporta un EML
 # verificado por SHA-256 (caso de engine/graph_import.py). El resto del motor,
@@ -26,3 +28,5 @@ RTFDE==0.1.2.2
 soupsieve==2.8.4
 typing_extensions==4.16.0
 tzlocal==5.3.1
+# Windows no trae base de datos IANA; zoneinfo (revision.py --tz) y tzlocal la necesitan.
+tzdata==2025.2; sys_platform == "win32"

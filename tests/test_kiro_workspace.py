@@ -31,7 +31,7 @@ class KiroWorkspaceTests(unittest.TestCase):
             "dynamic-analysis": ("dynamic-analysis", {"x64dbg"}),
         }
         power_dirs = {p.name for p in (ROOT / "powers").iterdir() if p.is_dir()}
-        self.assertEqual(power_dirs, set(expected))
+        self.assertEqual(power_dirs, set(expected) | {"exposure-hunting"})
         for power, (skill, servers) in expected.items():
             directory = ROOT / "powers" / power
             manifest = json.loads((directory / "plugin.json").read_text())
@@ -47,6 +47,22 @@ class KiroWorkspaceTests(unittest.TestCase):
             for server in mcp["mcpServers"].values():
                 self.assertIn("url", server)
                 self.assertFalse(server.get("disabled", True))
+
+    def test_exposure_hunting_power_is_read_only_and_lean(self):
+        directory = ROOT / "powers" / "exposure-hunting"
+        manifest = json.loads((directory / "plugin.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["name"], "exposure-hunting")
+        skill = (directory / "skills" / "exposure-assessment" / "SKILL.md").read_text(encoding="utf-8")
+        self.assertIn('name: "exposure-assessment"', skill)
+        self.assertIn("Solo lectura", skill)
+        self.assertIn("Una vez por campaña", skill)
+        example = json.loads((directory / "mcp.json.example").read_text(encoding="utf-8"))
+        self.assertEqual(set(example["mcpServers"]), {"falcon-mcp", "cisco-secure-access"})
+        falcon_env = example["mcpServers"]["falcon-mcp"]["env"]
+        self.assertEqual(falcon_env["FALCON_MCP_READ_ONLY"], "true")
+        self.assertEqual(falcon_env["FALCON_MCP_DYNAMIC"], "true")
+        cisco_auth = example["mcpServers"]["cisco-secure-access"]["headers"]["Authorization"]
+        self.assertRegex(cisco_auth, r"\$\{[A-Z0-9_]+\}")   # nunca un token literal
 
     def test_power_mcp_auth_uses_environment_placeholders_only(self):
         expected = {

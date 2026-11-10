@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "exposure-hunting",
+  "version": "1.0.0",
+  "description": "Measures internal exposure to confirmed malicious indicators using CrowdStrike Falcon (NG-SIEM, detections, intel) and Cisco Secure Access, strictly read-only.",
+  "author": {
+    "name": "Security Analysis Pipeline"
+  },
+  "keywords": [
+    "exposure",
+    "hunting",
+    "blast radius",
+    "who clicked",
+    "CrowdStrike",
+    "Falcon",
+    "NG-SIEM",
+    "Cisco Secure Access",
+    "Umbrella",
+    "DNS activity"
+  ]
+}

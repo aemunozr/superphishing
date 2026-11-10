@@ -18,6 +18,7 @@ URL_RE = re.compile(r"(?i)\b(?:https?://|hxxps?://|www\.)[^\s<>\"']+")
 BARE_DOMAIN_RE = re.compile(r"(?i)(?<![@\w.-])(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?![\w.-])")
 EMAIL_DOMAIN_RE = re.compile(r"(?i)\b[A-Z0-9._%+-]+@([A-Z0-9.-]+\.[A-Z]{2,63})\b")
 IPV4_RE = re.compile(r"(?<![\w.])(?:\d{1,3}\.){3}\d{1,3}(?![\w.])")
+WINDOWS_RESERVED_RE = re.compile(r"(?i)^(?:CON|PRN|AUX|NUL|COM[0-9]|LPT[0-9])(?:\..*)?$")
 IPV6_RE = re.compile(r"(?<![0-9a-f:])[0-9a-f:]{2,}(?![0-9a-f:])", re.I)
 
 
@@ -44,7 +45,11 @@ def write_json(path: str | Path, data) -> None:
 def safe_name(name: str, fallback: str = "artifact") -> str:
     leaf = (name or fallback).replace("\\", "/").split("/")[-1]
     leaf = re.sub(r"[^A-Za-z0-9._() -]+", "_", leaf).strip(" .")
-    return leaf[:140] or fallback
+    leaf = leaf[:140].rstrip(" .")
+    # Nombres reservados de Windows (CON, NUL, COM1...) fallan aunque lleven extensión.
+    if WINDOWS_RESERVED_RE.match(leaf):
+        leaf = "_" + leaf
+    return leaf or fallback
 
 
 def defang_to_parse(value: str) -> str:

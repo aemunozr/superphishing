@@ -47,6 +47,13 @@ class ExtractorTests(unittest.TestCase):
     def test_safe_filename(self):
         self.assertEqual(safe_name("../../evil.exe", "fallback"), "evil.exe")
 
+    def test_safe_filename_windows_reserved(self):
+        self.assertEqual(safe_name("CON.msg"), "_CON.msg")
+        self.assertEqual(safe_name("nul"), "_nul")
+        self.assertEqual(safe_name("com1.txt.msg"), "_com1.txt.msg")
+        self.assertEqual(safe_name("console.msg"), "console.msg")
+        self.assertEqual(safe_name("x" * 139 + ". .msg"), "x" * 139)
+
     def test_magic_bytes(self):
         self.assertEqual(sniff_file_type(b"%PDF-1.7", "fake.exe")["magic_type"], "pdf")
         self.assertEqual(sniff_file_type(b"MZ" + b"\0" * 20, "x.bin")["magic_type"], "pe_or_dos_executable")

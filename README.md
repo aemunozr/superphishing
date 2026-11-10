@@ -173,9 +173,16 @@ python3 -m venv .venv
 
 `engine/graph_import.py` sondea el buzón y crea un expediente por cada adjunto `.msg` (el correo contenedor solo aporta metadatos del reporte). Es incremental: guarda un checkpoint en `storage/cases.db`, omite contenedores ya procesados y reintenta hasta 3 veces los que fallan.
 
+Las credenciales `GRAPH_*` se toman del entorno o, con `--env-file`, de un archivo `KEY=VALUE` (por ejemplo el `.env` local, ignorado por git). Del archivo solo se cargan variables `GRAPH_*`, nunca pisan las ya definidas en el entorno y no se imprimen sus valores. `revision.py` admite la misma opción.
+
 ```bash
-export GRAPH_TENANT_ID=... GRAPH_CLIENT_ID=... GRAPH_CLIENT_SECRET=... GRAPH_MAILBOX=reportes@dominio
-.venv/bin/python engine/graph_import.py            # una pasada
+# macOS / Ubuntu
+.venv/bin/python engine/graph_import.py --env-file .env      # una pasada
+```
+
+```bat
+:: Windows (cmd)
+.venv\Scripts\python engine\graph_import.py --env-file .env
 ```
 
 En Ubuntu se instala como timer de systemd en `/opt/superphishing`:
@@ -187,6 +194,17 @@ sudo systemctl start superphishing-graph.service   # prueba manual
 journalctl -u superphishing-graph.service -n 50
 sudo systemctl enable --now superphishing-graph.timer
 ```
+
+#### Reputación VirusTotal (determinística, con caché)
+
+`engine/reputation.py` consulta la API v3 de VirusTotal **solo con GET** (nunca sube archivos ni pide escaneos) para los IOC de contexto del expediente: hashes de adjuntos que no son imágenes, el dominio del remitente y las URLs clicables, hasta 5 por caso. Excluye la infraestructura propia, los proveedores de correo y las plataformas masivas, y nunca envía direcciones de correo. Cada IOC se guarda en caché en `storage/cases.db` (7 días si se encontró, 1 día si no), y deja un resumen en `extracted/reputation.json` que el triage lee sin gastar tokens en la consulta. Si la API devuelve 429, los IOC restantes quedan `pending` para la siguiente pasada.
+
+```bash
+.venv/bin/python engine/reputation.py --env-file .env cases/CASE-...        # uno o varios casos
+.venv/bin/python engine/reputation.py --offline cases/CASE-...              # solo caché
+```
+
+El MCP `gti-agentic` (agente conversacional de Google Threat Intelligence) queda reservado para escalados de severidad alta o campañas: se le pasa solo el IOC mínimo y nunca contenido ni datos personales.
 
 #### Revisión por fechas
 

@@ -119,5 +119,28 @@ class GraphImportTests(unittest.TestCase):
         self.assertTrue(graph_import.messages_url(MAILBOX, "inbox", None, 10).startswith(GRAPH_ROOT))
 
 
+class EnvFileTests(unittest.TestCase):
+    def test_loads_only_graph_vars_without_overriding(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / ".env"
+            path.write_text(
+                "# comentario\n"
+                "GRAPH_TENANT_ID=tenant\n"
+                'GRAPH_CLIENT_ID="client"\n'
+                "export GRAPH_CLIENT_SECRET='secret'\n"
+                "GRAPH_MAILBOX=nuevo@example.com\n"
+                "GRAPH_FOLDER=\n"
+                "DARKNET_MCP_TOKEN=no-cargar\n",
+                encoding="utf-8")
+            env = {"GRAPH_MAILBOX": "existente@example.com"}
+            loaded = graph_import.load_env_file(path, env)
+        self.assertEqual(loaded, ["GRAPH_TENANT_ID", "GRAPH_CLIENT_ID", "GRAPH_CLIENT_SECRET"])
+        self.assertEqual(env["GRAPH_CLIENT_ID"], "client")
+        self.assertEqual(env["GRAPH_CLIENT_SECRET"], "secret")
+        self.assertEqual(env["GRAPH_MAILBOX"], "existente@example.com")
+        self.assertNotIn("GRAPH_FOLDER", env)
+        self.assertNotIn("DARKNET_MCP_TOKEN", env)
+
+
 if __name__ == "__main__":
     unittest.main()

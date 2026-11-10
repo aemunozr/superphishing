@@ -4,6 +4,10 @@ storage/*.db
 storage/*.db-wal
 storage/*.db-shm
 storage/graph_inbox/
+# Salidas de ejecución: contienen asuntos, remitentes y correos de reportantes
+storage/*.json
+storage/*.jsonl
+storage/*.err
 reports/
 *.msg
 *.eml

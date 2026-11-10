@@ -6,6 +6,7 @@ import argparse
 import html
 import json
 import mimetypes
+import os
 import re
 import shutil
 import sys
@@ -21,6 +22,7 @@ from common import (extract_domains, extract_html_evidence, extract_ips, extract
                     parse_raw_headers, safe_name, sha256_bytes, sha256_file,
                     sniff_file_type, write_json)
 from case_store import create_case, get_case_by_hash
+from static_scan import compact as compact_static_scan, scan_case
 
 MAX_MSG_BYTES = 150 * 1024 * 1024
 MAX_ATTACHMENTS = 200
@@ -66,7 +68,9 @@ def extract_msg_to_eml(msg_path: Path, eml_path: Path, attachment_dir: Path) -> 
     try:
         import extract_msg
     except ImportError as exc:
-        raise RuntimeError("Para convertir un MSG sin EML verificado del colector, ejecuta el motor desde el venv: .venv/bin/python -m pip install -r requirements.txt") from exc
+        venv_python = r".venv\Scripts\python" if os.name == "nt" else ".venv/bin/python"
+        raise RuntimeError("Falta extract-msg para convertir el MSG. Ejecuta el motor desde el venv del proyecto: "
+                           f"{venv_python} -m pip install -r requirements.txt") from exc
 
     ole_tolerance_note = ""
     try:
@@ -386,9 +390,15 @@ def process_case(source: Path, case_id: str | None, output: Path, db_path: Path,
         write_json(stage_case / "extracted" / "ips.json", ips)
         write_json(stage_case / "extracted" / "domains.json", domains)
         write_json(stage_case / "extracted" / "attachments.json", attachments)
-        write_json(stage_case / "summary.json", make_summary(chosen_id, conversion, normalized_headers,
-                    original_headers, body, urls, ips, domains, attachments, original_hash,
-                    sha256_file(stage_case / "normalized" / "message.eml")))
+        summary = make_summary(chosen_id, conversion, normalized_headers,
+                               original_headers, body, urls, ips, domains, attachments, original_hash,
+                               sha256_file(stage_case / "normalized" / "message.eml"))
+        if attachments:
+            # Escaneo local determinístico: el agente lee solo el resumen compacto.
+            static_report = scan_case(stage_case)
+            write_json(stage_case / "extracted" / "static_scan.json", static_report)
+            summary["static_scan"] = compact_static_scan(static_report)
+        write_json(stage_case / "summary.json", summary)
         eml_hash = sha256_file(stage_case / "normalized" / "message.eml")
         fingerprint_paths = {
             "triage": stage_case / "summary.json",
@@ -419,7 +429,8 @@ def process_case(source: Path, case_id: str | None, output: Path, db_path: Path,
             "artifacts": {"summary": "summary.json", "headers": "extracted/headers.json",
                           "body": "extracted/body.json", "urls": "extracted/urls.json",
                           "ips": "extracted/ips.json", "domains": "extracted/domains.json",
-                          "attachments": "extracted/attachments.json"},
+                          "attachments": "extracted/attachments.json",
+                          **({"static_scan": "extracted/static_scan.json"} if attachments else {})},
             "counts": {"urls": len(urls), "ips": len(ips), "domains": len(domains), "attachments": len(attachments)},
             "fingerprints": fingerprints,
             "safety": {"network_used": False, "attachments_executed": False,

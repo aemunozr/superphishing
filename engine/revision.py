@@ -27,7 +27,7 @@ from datetime import date, datetime, time, timedelta, timezone, tzinfo
 from pathlib import Path
 from typing import Optional, Tuple
 
-from graph_import import (GRAPH_ROOT, REQUIRED_ENV, GraphClient, GraphError, format_utc,
+from graph_import import (ENV_FILE_HELP, GRAPH_ROOT, REQUIRED_ENV, GraphClient, preload_env_file, GraphError, format_utc,
                           get_container, handle_container, init_poll_state, is_msg_candidate,
                           messages_url, quote, source_key, container_metadata)
 
@@ -116,10 +116,13 @@ def review(client: GraphClient, mailbox: str, folder: str, staging: Path, output
 
 
 def main() -> int:
+    if not preload_env_file():
+        return 2
     parser = argparse.ArgumentParser(
         description="Revisa el buzón de reportes por fechas e importa los MSG adjuntos.",
         epilog="Ejemplos: revision.py 09-10 | revision.py 09-10 15-10 | revision.py --desde 01-11 --listar")
     parser.add_argument("fechas", nargs="*", metavar="FECHA", help="Un día, o desde y hasta")
+    parser.add_argument("--env-file", type=Path, help=ENV_FILE_HELP)
     parser.add_argument("--desde", help="Fecha inicial (incluida)")
     parser.add_argument("--hasta", help="Fecha final (incluida); por defecto hasta ahora")
     parser.add_argument("--listar", action="store_true", help="Solo lista correos y adjuntos; no descarga ni crea casos")
@@ -175,4 +178,8 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    # En Windows la salida redirigida usa cp1252 y falla con emojis en asuntos; se fuerza UTF-8.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8")
     raise SystemExit(main())

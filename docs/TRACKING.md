@@ -24,6 +24,20 @@ El agente actualiza solo `analysis/state.json` y `analysis/findings.json`; nunca
 
 Cada hallazgo incluye categoría, observación, interpretación, fuente, referencia de evidencia, confianza, severidad e indicador opcional. Los detalles extensos permanecen en el artefacto original de la herramienta. El JSON contiene una síntesis breve y referencia, no dumps ni cuerpos completos.
 
+## Finalización con verificaciones pendientes
+
+Un caso se marca `finalized: true` cuando todas las ramas aplicables están resueltas y existe `report/final-report.md`, aunque queden comprobaciones fuera del alcance del pipeline (confirmaciones de negocio, sandbox, exposición interna). Estas se registran en `analysis/state.json`:
+
+```json
+"finalized": true,
+"finalized_utc": "2026-11-10T16:15:00+00:00",
+"pending_verifications": [
+  {"item": "Qué falta comprobar", "owner": "Quién puede comprobarlo", "impact_if_negative": "Cómo cambiaría el veredicto"}
+]
+```
+
+Un caso está cerrado del todo solo si `pending_verifications` está vacío. El informe repite la lista en la sección "Verificaciones pendientes".
+
 ## Informe
 
 El agente genera `report/final-report.md` cuando triage y todas las ramas aplicables estén resueltas. Debe incluir herramientas realmente invocadas, etapas omitidas, evidencia contraria y limitaciones.

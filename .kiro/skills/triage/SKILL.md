@@ -14,6 +14,9 @@ description: "Clasifica el expediente ya preparado, determina alcance y decide l
 7. Antes de cada rama, comprueba su estado y `input_fingerprint` en `analysis/state.json`; el valor de referencia debe coincidir con `case.json` → `fingerprints`. Reutiliza etapas `completed`; si cambió el material de entrada, no sobrescribas evidencia: solicita un caso/revisión nuevo.
 8. Usa exactamente estos fingerprints de `case.json`: `triage` → `fingerprints.triage`; `url_analysis` → `fingerprints.url_analysis`; `ioc_analysis` → `fingerprints.ioc_analysis`; `static_analysis` → `fingerprints.static_analysis`; `reverse_engineering` → `fingerprints.reverse_engineering`; `dynamic_analysis` → `fingerprints.dynamic_analysis`. No calcules huellas con el LLM.
 9. Actualiza la etapa `triage` en `analysis/state.json` con el fingerprint existente y una nota breve que explique qué ramas aplican. Para ramas omitidas, registra `not_applicable` o `skipped` con una razón breve.
+10. Veredicto preliminar: usa solo el vocabulario de `evidence-reporting` (`phishing`, `malware`, `fraud`, `suspicious`, `spam`, `legitimate`, `inconclusive`). Nunca `likely_*`. La duda se expresa con `confidence`.
+11. Campaña: antes de abrir ramas, busca en `cases/*/summary.json` y `cases/*/extracted/urls.json` el mismo host o patrón de URL, el mismo remitente o un asunto similar en los últimos 7 días. Si ya hay un caso cerrado de la misma campaña, anótalo en la nota del triage, reutiliza sus hallazgos (cadena, reputación, exposición) y analiza solo lo nuevo.
+12. Exposición: si el veredicto es `phishing`, `fraud` o `malware` y hay IOC de red de destino confirmados, indica en la nota que aplica `exposure-assessment` (Power `exposure-hunting`, una vez por campaña, dentro de `ioc_analysis`).
 
 ## Selección de profundidad
 
