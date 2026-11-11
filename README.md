@@ -7,9 +7,9 @@ Proyecto autocontenido de Kiro para procesar e investigar evidencias de segurida
 1. Descomprime el ZIP.
 2. En Kiro, abre la carpeta `security-analysis-pipeline` con **File → Open Folder**.
 3. Selecciona el agente `security-analyst`.
-4. Importa una sola vez los cuatro Powers locales desde `powers/*` siguiendo `docs/KIRO-SETUP.md`.
+4. Importa una sola vez los cinco Powers locales desde `powers/*` siguiendo `docs/KIRO-SETUP.md`.
 
-No se instalan herramientas de análisis, binarios ni servidores nuevos. Solo se registran los cuatro paquetes Power locales en Kiro; las conexiones apuntan a los servidores MCP existentes de tu laboratorio.
+No se instalan herramientas de análisis, binarios ni servidores nuevos. Solo se registran los cinco paquetes Power locales en Kiro; las conexiones apuntan a los servidores MCP existentes de tu laboratorio.
 
 ## Arquitectura
 
@@ -36,7 +36,7 @@ flowchart LR
     subgraph WS["Estación del analista · Kiro"]
         AG[Agente security-analyst<br/>sin shell]
         SK[Skills workspace<br/>triage · email · url ·<br/>mcp-discovery · reporting]
-        PW[Powers<br/>threat-intelligence · static-analysis ·<br/>reverse-engineering · dynamic-analysis]
+        PW[Powers<br/>threat-intelligence · static-analysis ·<br/>reverse-engineering · dynamic-analysis ·<br/>exposure-hunting]
         AG --> SK
         AG --> PW
         CL[("cases/ local<br/>state.json · findings.json ·<br/>final-report.md")]
@@ -82,7 +82,10 @@ flowchart TD
         D{¿SHA-256 ya<br/>registrado?} -->|sí| X[duplicate<br/>no se crea caso]
         D -->|no| E[MSG → EML<br/>extract-msg]
         E --> F[Extracción<br/>headers, body, URLs,<br/>IPs, dominios, adjuntos]
+        F -->|hay adjuntos| SS[Escaneo estático local<br/>static_scan.py<br/>extracted/static_scan.json]
         F --> G[(Expediente cases/CASE-...<br/>+ índice SQLite)]
+        SS --> G
+        G -.->|paso aparte, CLI<br/>reputation.py, solo GET| RP[Reputación VirusTotal con caché<br/>extracted/reputation.json]
     end
 
     subgraph Analisis["Análisis (agente security-analyst)"]
@@ -90,7 +93,8 @@ flowchart TD
         H --> I[email-analysis<br/>SPF/DKIM/DMARC, Received]
         H -->|hay URLs| J[url-analysis<br/>sintáctico, sin abrir]
         H -->|IOCs relevantes| K[threat-intelligence<br/>Darknet, VirusTotal/GTI]
-        H -->|hay adjuntos| L[static-analysis<br/>REMnux]
+        H -->|adjuntos marcados<br/>como riesgo en static_scan| L[static-analysis<br/>REMnux]
+        K -->|veredicto phishing/fraud/malware<br/>e IOC de red confirmados| O[exposure-hunting<br/>CrowdStrike, Cisco Secure Access<br/>solo lectura, una vez por campaña]
         L -->|binario PE/ELF| M[reverse-engineering<br/>Ghidra, Radare2]
         L -.->|solo con autorización<br/>y laboratorio aislado| N[dynamic-analysis<br/>x64dbg]
     end
@@ -101,6 +105,7 @@ flowchart TD
     L --> R
     M --> R
     N -.-> R
+    O --> R
     R[evidence-reporting<br/>state.json, findings.json,<br/>report/final-report.md]
 ```
 
@@ -111,7 +116,7 @@ Las ramas que el triage no justifica quedan como `not_applicable` u omitidas con
 - Python realiza conversión, parsing, extracción, normalización, hashes y deduplicación sin LLM.
 - El agente empieza por `case.json`, `summary.json` y `analysis/state.json`; abre artefactos completos solo cuando una pregunta concreta lo requiere.
 - Cinco Skills generales de workspace: triage, email, URL, descubrimiento selectivo MCP e informes.
-- Cuatro Powers especializados: CTI, análisis estático, ingeniería inversa y dinámica.
+- Cinco Powers especializados: CTI, análisis estático, ingeniería inversa, dinámica y exposición.
 - Un único agente coordinador; sin subagentes ni delegación redundante.
 - Cada Power contiene solo los MCP de su especialidad. Kiro administra y activa/desactiva esas conexiones junto al Power.
 - El agente usa `includeMcpJson: false` y `includePowers: true`: no importa el inventario MCP global al contexto.
@@ -138,6 +143,7 @@ Las ramas que el triage no justifica quedan como `not_applicable` u omitidas con
 | `static-analysis` | REMnux + REMnux Docs | `file-analysis` |
 | `reverse-engineering` | Ghidra + Radare2 | `reverse-engineering` |
 | `dynamic-analysis` | x64dbg | `dynamic-analysis` |
+| `exposure-hunting` | CrowdStrike Falcon, Cisco Secure Access (solo lectura) | `exposure-assessment` |
 
 Procmon no aparece en la configuración MCP compartida, por lo que no se anuncia como conectado.
 
