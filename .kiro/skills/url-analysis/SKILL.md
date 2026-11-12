@@ -7,7 +7,9 @@ description: "Investiga URLs extraídas: análisis sintáctico, seguimiento cont
 
 1. Usa `extracted/urls.json`. Conserva `value` exacto como original y usa `normalized_for_parsing` solo para parsear. No vuelvas a extraer ni a deduplicar.
 2. Análisis sintáctico: esquema, hostname, puerto, credenciales embebidas, IP literal, Punycode/IDN, dominio registrable, subdominios engañosos, ruta, parámetros, acortadores y codificación repetida. Compara el texto visible con el destino.
-3. Correlación de campaña antes de gastar llamadas: busca el mismo host o patrón en `cases/*/extracted/urls.json` y en los `findings.json` de otros casos. Si otro caso ya resolvió ese mismo enlace o destino, reutiliza su cadena y su reputación, cítalo y no vuelvas a seguirlo.
+3. Correlación de campaña antes de gastar llamadas: busca el mismo host o patrón en `cases/**/extracted/urls.json` y en los `findings.json` de otros casos. Si otro caso ya resolvió ese mismo enlace o destino, reutiliza su cadena y su reputación, cítalo y no vuelvas a seguirlo. En campañas con enlaces únicos por destinatario (p. ej. `share.google/<id>`), sigue hasta 3 enlaces representativos de la campaña, no uno por caso.
+
+Este seguimiento es la excepción explícita a la regla global de no abrir URLs: solo se permite desde REMnux, con este procedimiento y en casos `phishing` o `suspicious`.
 
 ## Seguimiento de redirecciones (solo `phishing` o `suspicious` en el triage)
 
@@ -19,6 +21,7 @@ description: "Investiga URLs extraídas: análisis sintáctico, seguimiento cont
 U='<URL>'; D=/home/remnux/files/samples/probe_<CASE>; mkdir -p "$D"; UA='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36'; for i in $(seq 1 15); do H=$(echo "$U" | sed -E 's#^https?://([^/:?]+).*#\1#'); if getent ahosts "$H" | awk '{print $1}' | grep -qE '^(0\.|10\.|127\.|169\.254\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|::1$|f[cd]|fe80)'; then echo "$i BLOCKED_PRIVATE $H"; break; fi; F="$D/hop$i"; R=$(curl -sS --max-time 20 --max-filesize 26214400 --proto =https,http -A "$UA" -o "$F" -w '%{http_code}|%{content_type}|%{redirect_url}|%{size_download}' "$U" 2>&1) || { echo "$i ERR $U $R"; break; }; IFS='|' read -r CODE CT NEXT SIZE <<< "$R"; echo "$i $CODE ${U%%\?*} ct=$CT size=$SIZE sha256=$(sha256sum "$F" | cut -c1-64) magic=$(file -b "$F" | cut -c1-50)"; if [ -z "$NEXT" ] && grep -qiE '<html|<!doctype' "$F"; then NEXT=$(grep -oiE "(http-equiv=.refresh[^>]*url=|location(\.href)? *= *|location\.(replace|assign)\()['\"][^'\"]+" "$F" | head -1 | sed -E "s/.*['\"]//"); [ -n "$NEXT" ] && echo "$i HTML_REDIRECT $NEXT"; fi; [ -z "$NEXT" ] && break; case "$NEXT" in http*) U="$NEXT";; /*) U="$(echo "$U" | grep -oE '^https?://[^/]+')$NEXT";; *) U="${U%/*}/$NEXT";; esac; done
 ```
 
+6b. **Códigos QR (quishing).** Si el cuerpo pide escanear un código y no hay enlace en texto, el destino está en una imagen. Comprueba con `check_tools` si REMnux tiene un decodificador de QR (p. ej. `zbarimg`). Si lo tiene, decodifica la imagen del adjunto o del cuerpo, y trata la URL resultante como enlace clicable con el probe. Si no lo tiene o la imagen no está accesible en REMnux, regístralo en `pending_verifications`. No escanees el QR con ningún dispositivo.
 7. **No eludas** filtros anti-bot, CAPTCHA, login, WAF ni rate limits: no envíes formularios, tokens ni POST de validación, y no ejecutes JavaScript. Si la cadena termina en uno de ellos, regístralo como `antibot_gate` o `login_page`. El contenido posterior queda en `pending_verifications` (sandbox con navegador).
 
 ## Descargables

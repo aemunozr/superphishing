@@ -1,0 +1,15 @@
+{
+  "version": "v1",
+  "hooks": [
+    {
+      "name": "Analizar expediente nuevo",
+      "trigger": "PostFileCreate",
+      "description": "Cuando aparece un READY en cases/<CASE>/, lanza el flujo de análisis sobre ese expediente",
+      "matcher": "cases[\\\\/](?:.+[\\\\/])?CASE-[^\\\\/]+[\\\\/]READY$",
+      "action": {
+        "type": "agent",
+        "prompt": "Ha aparecido un expediente nuevo con marcador READY en cases/. Identifica el expediente a partir de la ruta del archivo creado. Si analysis/state.json ya tiene finalized=true, no hagas nada. Si no, delega en el sub-agente security-analyst el flujo completo (triage, ramas justificadas, informe) solo sobre ese expediente. Si pertenece a una campaña ya cerrada (mismo remitente, Message-ID o patrón de URL), aplica el cierre abreviado de la Skill triage."
+      }
+    }
+  ]
+}

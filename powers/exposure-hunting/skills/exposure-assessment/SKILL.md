@@ -8,7 +8,7 @@ description: "Mide la exposición interna (equipos y usuarios que contactaron IO
 ## Cuándo
 
 1. Solo si el veredicto es `phishing`, `fraud` o `malware` y existen IOC de red **confirmados**: dominios o IP de destino de la cadena de redirección (Skill `url-analysis`), hosts de descarga o hashes detectados. Nunca con dominios de remitente legítimos comprometidos, plataformas masivas (`share.google`, `gmail.com`, `googleusercontent.com`) ni infraestructura propia.
-2. **Una vez por campaña.** Antes de consultar, busca en `cases/*/analysis/findings.json` un hallazgo `category: "exposure"` con los mismos IOC y una ventana que cubra la actual. Si existe y tiene menos de 24 h, cítalo y no consultes.
+2. **Una vez por campaña.** Antes de consultar, busca en `cases/**/analysis/findings.json` un hallazgo `category: "exposure"` con los mismos IOC y una ventana que cubra la actual. Si existe y tiene menos de 24 h, cítalo y no consultes.
 3. Máximo 10 IOC por consulta. Agrúpalos todos en una sola llamada.
 
 ## Solo lectura (obligatorio)

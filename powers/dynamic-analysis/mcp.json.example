@@ -5,7 +5,7 @@
       "type": "streamable-http",
       "url": "https://mcp.teamprimate.com/x64dbg/mcp",
       "headers": {
-        "Authorization": "Basic <BASE64_USUARIO:CONTRASEÑA>"
+        "Authorization": "Basic ${X64DBG_MCP_BASIC_AUTH}"
       }
     }
   }

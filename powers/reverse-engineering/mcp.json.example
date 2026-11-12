@@ -5,14 +5,14 @@
       "type": "streamable-http",
       "url": "https://mcp.teamprimate.com/ghidra/mcp",
       "headers": {
-        "Authorization": "Basic <BASE64_USUARIO:CONTRASEÑA>"
+        "Authorization": "Basic ${GHIDRA_MCP_BASIC_AUTH}"
       }
     },
     "radare2": {
       "type": "streamable-http",
       "url": "https://mcp.teamprimate.com/radare2/mcp",
       "headers": {
-        "Authorization": "Bearer <TOKEN>"
+        "Authorization": "Bearer ${RADARE2_MCP_TOKEN}"
       }
     }
   }

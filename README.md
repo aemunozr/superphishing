@@ -33,10 +33,14 @@ flowchart LR
         VENV[.venv · extract-msg] -.-> IN
     end
 
-    subgraph WS["Estación del analista · Kiro"]
-        AG[Agente security-analyst<br/>sin shell]
+    subgraph WS["Estación del analista · Kiro · Windows con cmd, sin PowerShell"]
+        STR[Steering<br/>security-analysis · mcp-status]
+        HK[Hook READY<br/>analizar-expediente-nuevo]
+        AG["Agente security-analyst<br/>shell denegado,<br/>escribe solo analysis y report"]
         SK[Skills workspace<br/>triage · email · url ·<br/>mcp-discovery · reporting]
         PW[Powers<br/>threat-intelligence · static-analysis ·<br/>reverse-engineering · dynamic-analysis ·<br/>exposure-hunting]
+        STR -.->|reglas siempre cargadas| AG
+        HK -->|caso nuevo no finalizado| AG
         AG --> SK
         AG --> PW
         CL[("cases/ local<br/>state.json · findings.json ·<br/>final-report.md")]
@@ -44,20 +48,24 @@ flowchart LR
     end
 
     subgraph MCP["Servidores MCP"]
-        DN[Darknet · Docker<br/>OTX, abuse.ch, AbuseIPDB,<br/>GreyNoise, PhishTank...]
-        RM[REMnux + REMnux Docs]
+        DN[Darknet · Docker<br/>OTX, GreyNoise, CIRCL, Tor<br/>abuse.ch y PhishTank sin acceso]
+        GT[GTI agentic<br/>escalados y campañas]
+        RM[REMnux + REMnux Docs<br/>análisis estático y<br/>probe de redirecciones]
         RE[Ghidra · Radare2]
         XD[x64dbg<br/>laboratorio Windows aislado]
-        GT[GTI / VirusTotal<br/>planificado]
+        FL[CrowdStrike Falcon<br/>solo lectura]
+        CSA[Cisco Secure Access<br/>sin herramientas hoy]
     end
 
     GI -->|OAuth2 client credentials<br/>HTTPS| GR
     CS -. "copia de expedientes<br/>(hoy manual)" .-> CL
     PW -->|threat-intelligence| DN
-    PW -.->|threat-intelligence| GT
+    PW -->|threat-intelligence| GT
     PW -->|static-analysis| RM
     PW -->|reverse-engineering| RE
     PW -.->|dynamic-analysis<br/>con autorización| XD
+    PW -->|exposure-hunting| FL
+    PW -.->|exposure-hunting| CSA
 ```
 
 | Componente | Dónde corre | Responsabilidad | Escribe en |
@@ -90,11 +98,14 @@ flowchart TD
 
     subgraph Analisis["Análisis (agente security-analyst)"]
         G --> H[Triage<br/>case.json, summary.json, state.json]
-        H --> I[email-analysis<br/>SPF/DKIM/DMARC, Received]
-        H -->|hay URLs| J[url-analysis<br/>sintáctico, sin abrir]
-        H -->|IOCs relevantes| K[threat-intelligence<br/>Darknet, VirusTotal/GTI]
-        H -->|adjuntos marcados<br/>como riesgo en static_scan| L[static-analysis<br/>REMnux]
-        K -->|veredicto phishing/fraud/malware<br/>e IOC de red confirmados| O[exposure-hunting<br/>CrowdStrike, Cisco Secure Access<br/>solo lectura, una vez por campaña]
+        H --> CP{"¿Misma campaña que<br/>un caso cerrado?<br/>remitente · Message-ID ·<br/>patrón de URL"}
+        CP -->|sí, duplicado de plantilla| AB["Cierre abreviado<br/>solo diferencias +<br/>referencia al caso principal"]
+        CP -->|no| I[email-analysis<br/>SPF/DKIM/DMARC, Received]
+        CP -->|hay URLs| J["url-analysis<br/>sintáctico + probe REMnux<br/>solo phishing o suspicious"]
+        CP -->|IOCs relevantes| K["threat-intelligence<br/>reputation.json → Darknet → GTI<br/>omite fuentes de mcp-status"]
+        CP -->|adjuntos marcados<br/>como riesgo en static_scan| L[static-analysis<br/>REMnux]
+        J -->|salto descargable| L
+        K -->|veredicto phishing/fraud/malware<br/>e IOC de red confirmados| O[exposure-hunting<br/>CrowdStrike Falcon, solo lectura,<br/>una vez por campaña]
         L -->|binario PE/ELF| M[reverse-engineering<br/>Ghidra, Radare2]
         L -.->|solo con autorización<br/>y laboratorio aislado| N[dynamic-analysis<br/>x64dbg]
     end
@@ -106,10 +117,13 @@ flowchart TD
     M --> R
     N -.-> R
     O --> R
+    AB --> R
     R[evidence-reporting<br/>state.json, findings.json,<br/>report/final-report.md]
 ```
 
 Las ramas que el triage no justifica quedan como `not_applicable` u omitidas con motivo en `state.json`. El agente reutiliza etapas completadas cuando el fingerprint de su entrada no cambió.
+
+Las URLs nunca se abren desde la estación ni la red corporativa. La única excepción es el probe de `url-analysis`: se ejecuta en REMnux, solo en casos `phishing` o `suspicious`, sin datos de la víctima, sin JavaScript y sin eludir anti-bot ni login. En campañas con enlaces únicos se siguen hasta 3 enlaces representativos, no uno por caso.
 
 ## Diseño de bajo consumo
 
@@ -117,13 +131,24 @@ Las ramas que el triage no justifica quedan como `not_applicable` u omitidas con
 - El agente empieza por `case.json`, `summary.json` y `analysis/state.json`; abre artefactos completos solo cuando una pregunta concreta lo requiere.
 - Cinco Skills generales de workspace: triage, email, URL, descubrimiento selectivo MCP e informes.
 - Cinco Powers especializados: CTI, análisis estático, ingeniería inversa, dinámica y exposición.
-- Un único agente coordinador; sin subagentes ni delegación redundante.
+- Un único agente de análisis, `security-analyst`. En lotes, el coordinador delega en él como sub-agente (nunca en un agente genérico sin restricciones): hasta 15 casos simples o 6 con phishing o adjuntos por lote, con un prompt corto porque las reglas ya están en el steering.
+- Agrupación por campaña antes de analizar: un caso a fondo por grupo y cierre abreviado en los duplicados de plantilla.
+- `.kiro/steering/mcp-status.md` lista las fuentes MCP que hoy fallan, para que el agente no gaste llamadas en ellas.
 - Cada Power contiene solo los MCP de su especialidad. Kiro administra y activa/desactiva esas conexiones junto al Power.
 - El agente usa `includeMcpJson: false` y `includePowers: true`: no importa el inventario MCP global al contexto.
 - Las Skills usan carga progresiva: metadatos al inicio y contenido completo bajo demanda.
 - Los secretos se suministran mediante variables de entorno aprobadas; no están en el repositorio.
 - JSON por expediente para estado/hallazgos; SQLite para índice y deduplicación determinística.
-- Shell denegado al agente. Solo puede actualizar estado, hallazgos e informe del caso activo.
+- Shell denegado al agente. Solo puede actualizar estado, hallazgos e informe del caso activo, y debe leerlos antes de editarlos.
+- En la estación Windows no hay PowerShell. `cmd` se usa solo para el motor, los tests y git de solo lectura.
+
+## Steering y hook
+
+| Archivo | Función |
+|---|---|
+| `.kiro/steering/security-analysis.md` | Reglas globales, vocabulario fijo de veredictos y severidades, excepción de URLs para REMnux, reglas de lotes |
+| `.kiro/steering/mcp-status.md` | Fuentes MCP que no se deben consultar y fuentes operativas; actualízalo cuando cambie |
+| `.kiro/hooks/analizar-expediente-nuevo.json` | Al aparecer un `READY`, delega el caso en `security-analyst` si no está finalizado |
 
 ## Skills generales
 
@@ -139,17 +164,19 @@ Las ramas que el triage no justifica quedan como `not_applicable` u omitidas con
 
 | Power | Servidores | Skill especializada |
 |---|---|---|
-| `threat-intelligence` | Darknet | `ioc-correlation` |
-| `static-analysis` | REMnux + REMnux Docs | `file-analysis` |
+| `threat-intelligence` | Darknet + GTI agentic | `ioc-correlation` |
+| `static-analysis` | REMnux + REMnux Docs (también ejecuta el probe de redirecciones) | `file-analysis` |
 | `reverse-engineering` | Ghidra + Radare2 | `reverse-engineering` |
 | `dynamic-analysis` | x64dbg | `dynamic-analysis` |
-| `exposure-hunting` | CrowdStrike Falcon, Cisco Secure Access (solo lectura) | `exposure-assessment` |
+| `exposure-hunting` | CrowdStrike Falcon, Cisco Secure Access (solo lectura; Cisco sin herramientas hoy) | `exposure-assessment` |
 
 Procmon no aparece en la configuración MCP compartida, por lo que no se anuncia como conectado.
 
 ## Configurar Kiro
 
 Sigue `docs/KIRO-SETUP.md` y `docs/MCP-ENVIRONMENT.md`. Las credenciales que se compartieron en la conversación deben rotarse antes del primer uso. Ningún secreto está incluido en este ZIP.
+
+Cada Power trae `mcp.json.example`, versionado y con placeholders `${VARIABLE}` en todas las cabeceras de autenticación. El `mcp.json` real de cada Power es local, lleva tus credenciales y está en `.gitignore`. Lo mismo vale para `.kiro/settings/mcp.json`, que solo debe desactivar (`"disabled": true`) los seis servidores globales homónimos: `remnux`, `remnux-docs`, `ghidra`, `radare2`, `darknet` y `x64dbg`.
 
 ## Preparar un caso desde MSG
 
@@ -258,4 +285,9 @@ Consulta un expediente con `.venv/bin/python engine/case_cli.py CASE-...`.
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Las pruebas usan mensajes sintéticos; no ejecutan muestras ni realizan conexiones de red.
+```bat
+:: Windows (cmd)
+.venv\Scripts\python -m unittest discover -s tests -v
+```
+
+Las pruebas usan mensajes sintéticos; no ejecutan muestras ni realizan conexiones de red. La configuración MCP se valida sobre las plantillas `mcp.json.example`, no sobre los `mcp.json` locales con credenciales. El test de `.kiro/settings/mcp.json` se omite si ese archivo local no existe.

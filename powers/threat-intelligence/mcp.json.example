@@ -5,7 +5,14 @@
       "type": "streamable-http",
       "url": "https://mcp.teamprimate.com/darknet/mcp",
       "headers": {
-        "Authorization": "Bearer <TOKEN>"
+        "Authorization": "Bearer ${DARKNET_MCP_TOKEN}"
+      }
+    },
+    "gti-agentic": {
+      "type": "streamable-http",
+      "url": "https://www.virustotal.com/api/v3/agentspace/mcp/",
+      "headers": {
+        "x-apikey": "${GTI_MCP_API_KEY}"
       }
     }
   }

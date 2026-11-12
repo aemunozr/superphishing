@@ -25,7 +25,7 @@ class KiroWorkspaceTests(unittest.TestCase):
 
     def test_four_native_power_packages_have_valid_manifests_skills_and_mcp(self):
         expected = {
-            "threat-intelligence": ("ioc-correlation", {"darknet"}),
+            "threat-intelligence": ("ioc-correlation", {"darknet", "gti-agentic"}),
             "static-analysis": ("file-analysis", {"remnux", "remnux-docs"}),
             "reverse-engineering": ("reverse-engineering", {"ghidra", "radare2"}),
             "dynamic-analysis": ("dynamic-analysis", {"x64dbg"}),
@@ -41,7 +41,8 @@ class KiroWorkspaceTests(unittest.TestCase):
             skill_file = directory / "skills" / skill / "SKILL.md"
             self.assertTrue(skill_file.is_file())
             self.assertIn(f'name: "{skill}"', skill_file.read_text())
-            mcp = json.loads((directory / "mcp.json").read_text())
+            # Se valida la plantilla versionada: mcp.json es local, lleva credenciales y está en .gitignore.
+            mcp = json.loads((directory / "mcp.json.example").read_text(encoding="utf-8"))
             self.assertEqual(set(mcp["mcpServers"]), servers)
             self.assertIn("agent-plugins.org/schemas/1.0.0/mcp.schema.json", mcp["$schema"])
             for server in mcp["mcpServers"].values():
@@ -68,21 +69,30 @@ class KiroWorkspaceTests(unittest.TestCase):
 
     def test_power_mcp_auth_uses_environment_placeholders_only(self):
         expected = {
-            "DARKNET_MCP_TOKEN", "REMNUX_MCP_TOKEN", "GHIDRA_MCP_BASIC_AUTH",
-            "RADARE2_MCP_TOKEN", "X64DBG_MCP_BASIC_AUTH",
+            "DARKNET_MCP_TOKEN", "GTI_MCP_API_KEY", "REMNUX_MCP_TOKEN", "GHIDRA_MCP_BASIC_AUTH",
+            "RADARE2_MCP_TOKEN", "X64DBG_MCP_BASIC_AUTH", "CISCO_SA_MCP_TOKEN",
         }
         found = set()
-        for path in (ROOT / "powers").glob("*/mcp.json"):
-            data = json.loads(path.read_text())
-            for server in data["mcpServers"].values():
-                for value in server.get("headers", {}).values():
+        for path in (ROOT / "powers").glob("*/mcp.json.example"):
+            data = json.loads(path.read_text(encoding="utf-8"))
+            for name, server in data["mcpServers"].items():
+                for header, value in server.get("headers", {}).items():
                     match = re.search(r"\$\{([A-Z0-9_]+)\}", value)
-                    if match:
-                        found.add(match.group(1))
+                    # Toda cabecera de las plantillas versionadas debe ser un placeholder, nunca un secreto literal.
+                    self.assertIsNotNone(match, f"{path.parent.name}/{name}: cabecera {header} sin placeholder")
+                    found.add(match.group(1))
         self.assertEqual(found, expected)
 
+    def test_local_power_mcp_files_are_git_ignored(self):
+        ignored = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn("powers/*/mcp.json", ignored)
+        self.assertIn(".kiro/settings/mcp.json", ignored)
+
     def test_workspace_disables_only_same_named_global_servers(self):
-        config = json.loads((ROOT / ".kiro/settings/mcp.json").read_text())
+        path = ROOT / ".kiro/settings/mcp.json"
+        if not path.is_file():
+            self.skipTest(".kiro/settings/mcp.json es local y no está versionado")
+        config = json.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(set(config["mcpServers"]), {
             "remnux", "remnux-docs", "ghidra", "radare2", "darknet", "x64dbg",
         })

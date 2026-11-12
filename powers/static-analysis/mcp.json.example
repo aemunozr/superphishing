@@ -5,7 +5,7 @@
       "type": "streamable-http",
       "url": "https://mcp.teamprimate.com/remnux/mcp",
       "headers": {
-        "Authorization": "Bearer <TOKEN>"
+        "Authorization": "Bearer ${REMNUX_MCP_TOKEN}"
       }
     },
     "remnux-docs": {

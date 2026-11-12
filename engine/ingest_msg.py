@@ -327,8 +327,12 @@ def process_case(source: Path, case_id: str | None, output: Path, db_path: Path,
     existing = get_case_by_hash(db_path, original_hash)
     if existing:
         raise FileExistsError(f"MSG duplicado: ya existe {existing['case_id']} ({existing['case_path']}). No se creó otro caso.")
-    generated_id = f"CASE-{datetime.now(timezone.utc):%Y%m%d-%H%M%S}-{original_hash[:8]}"
+    now_utc = datetime.now(timezone.utc)
+    generated_id = f"CASE-{now_utc:%Y%m%d-%H%M%S}-{original_hash[:8]}"
     chosen_id = safe_name(case_id or generated_id, "case")
+    # Los expedientes se agrupan por fecha de creación (UTC): cases/AAAA/MM/DD/CASE-...
+    case_root = case_root / f"{now_utc:%Y}" / f"{now_utc:%m}" / f"{now_utc:%d}"
+    case_root.mkdir(parents=True, exist_ok=True)
     final_case = case_root / chosen_id
     if final_case.exists():
         raise FileExistsError(f"El expediente ya existe y no se sobrescribe: {final_case}")
