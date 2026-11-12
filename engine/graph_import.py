@@ -366,7 +366,7 @@ def load_env_file(path: Path, environ=os.environ, prefixes: tuple = ("GRAPH_",))
     return loaded
 
 
-ENV_FILE_HELP = "Archivo KEY=VALUE del que cargar solo variables GRAPH_* (p. ej. .env); no pisa el entorno"
+ENV_FILE_HELP = "Archivo KEY=VALUE del que cargar solo variables GRAPH_* y REMNUX_STAGE_* (p. ej. .env); no pisa el entorno"
 
 
 def preload_env_file() -> bool:
@@ -382,7 +382,8 @@ def preload_env_file() -> bool:
     if not pre_args.env_file.is_file():
         print(f"ERROR: no existe el archivo de entorno {pre_args.env_file}", file=sys.stderr)
         return False
-    loaded = load_env_file(pre_args.env_file)
+    # REMNUX_STAGE_*: la ingesta envía los adjuntos de riesgo a REMnux antes de marcar READY.
+    loaded = load_env_file(pre_args.env_file, prefixes=("GRAPH_", "REMNUX_STAGE_"))
     print(f"Variables cargadas de {pre_args.env_file}: {', '.join(loaded) or 'ninguna'}", file=sys.stderr)
     return True
 

@@ -8,10 +8,19 @@ adjuntos marcados como riesgo justifican escalar a REMnux.
 Soporta PDF (solo librería estándar): normaliza nombres ofuscados (#xx), descomprime
 streams FlateDecode con límites anti-bomba y busca JavaScript, acciones automáticas,
 lanzamientos, URIs, formularios, archivos embebidos y cifrado.
+
+Soporta SVG/HTML/XML como texto: scripts, manejadores de eventos, redirecciones,
+decodificación base64 (atob), iframes, formularios y URLs externas. Nunca renderiza
+ni ejecuta el contenido.
+
+Los tipos que pueden llevar contenido activo y no tienen escáner local (ejecutables,
+scripts, Office, contenedores, accesos directos) se marcan para escalar a REMnux.
 """
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import glob
 import json
 import re
@@ -21,7 +30,7 @@ from pathlib import Path
 
 from common import sha256_bytes, write_json
 
-SCAN_VERSION = "1.0"
+SCAN_VERSION = "1.1"
 MAX_FILE_BYTES = 30 * 1024 * 1024
 MAX_STREAM_OUT = 8 * 1024 * 1024        # por stream descomprimido
 MAX_TOTAL_OUT = 64 * 1024 * 1024        # total descomprimido por archivo
@@ -41,6 +50,35 @@ STREAM_RE = re.compile(rb"stream\r?\n(.*?)\r?\n?endstream", re.S)
 URI_RE = re.compile(rb"/URI\s*\(((?:\\.|[^\\)]){1,2048})\)")
 META_RE = {name: re.compile(rb"/" + name.encode() + rb"\s*\(((?:\\.|[^\\)]){0,200})\)")
            for name in ("Producer", "Creator", "Author", "Title")}
+
+# Marcado (SVG/HTML/XML). HIGH: capacidad de ejecutar o navegar sin intervención; REVIEW: enlaces externos.
+MARKUP_HIGH = {
+    "script": re.compile(r"<script\b", re.I),
+    "event_handler": re.compile(r"\son[a-z]{3,20}\s*=", re.I),
+    "javascript_uri": re.compile(r"javascript\s*:", re.I),
+    "base64_decode": re.compile(r"\batob\s*\(", re.I),
+    "dynamic_code": re.compile(r"\b(eval|Function|setTimeout|setInterval)\s*\(\s*['\"]|\bnew\s+Function\b|fromCharCode|unescape\s*\(|document\.write", re.I),
+    "redirect": re.compile(r"location(\.href)?\s*=|location\.(replace|assign)\s*\(|window\.open\s*\(|http-equiv\s*=\s*['\"]?refresh", re.I),
+    "iframe": re.compile(r"<i?frame\b|<embed\b|<object\b", re.I),
+    "foreign_object": re.compile(r"<foreignObject\b", re.I),
+    "form": re.compile(r"<form\b|<input\b[^>]*type\s*=\s*['\"]?password", re.I),
+}
+MARKUP_SNIFF_RE = re.compile(r"<svg\b|<html\b|<!doctype\s+html|<script\b|<body\b", re.I)
+MARKUP_URL_RE = re.compile(r"https?://[^\s\"'<>()\\]{3,2048}", re.I)
+ATOB_RE = re.compile(r"atob\s*\(\s*['\"]([A-Za-z0-9+/=_-]{8,4096})['\"]\s*\)", re.I)
+NAMESPACE_PREFIXES = ("http://www.w3.org/", "https://www.w3.org/", "http://purl.org/", "http://ns.adobe.com/",
+                      "http://creativecommons.org/", "http://schemas.")
+
+# Tipos sin escáner local que pueden contener contenido activo: se escalan a REMnux.
+ACTIVE_MAGIC = frozenset({"pe_or_dos_executable", "elf_executable", "zip_container", "ole_compound", "rtf",
+                          "gzip", "rar_container", "7z_container"})
+ACTIVE_EXTENSIONS = frozenset({
+    "exe", "dll", "scr", "com", "cpl", "msi", "msix", "appx", "bat", "cmd", "ps1", "psm1", "vbs", "vbe",
+    "js", "jse", "wsf", "wsh", "hta", "lnk", "url", "iso", "img", "vhd", "vhdx", "jar", "apk",
+    "zip", "rar", "7z", "gz", "tgz", "tar", "cab", "ace", "arj",
+    "doc", "docm", "dot", "dotm", "xls", "xlsm", "xlsb", "xlam", "ppt", "pptm", "ppam", "rtf", "one",
+    "docx", "xlsx", "pptx", "chm", "reg",
+})
 
 
 def _normalize_names(data: bytes) -> tuple[bytes, int]:
@@ -170,7 +208,45 @@ def scan_pdf(data: bytes) -> dict:
 def scan_bytes(data: bytes, magic_type: str | None) -> dict:
     if magic_type == "pdf" or data.startswith(b"%PDF-"):
         return {"status": "scanned", **scan_pdf(data)}
+    if magic_type in (None, "unknown") and is_markup(data):
+        return {"status": "scanned", **scan_markup(data)}
     return {"status": "not_supported"}
+
+
+def is_markup(data: bytes) -> bool:
+    """SVG/HTML/XML reconocible por las primeras líneas (texto, sin firma binaria)."""
+    head = data[:4096].lstrip(b"\xef\xbb\xbf \t\r\n").decode("utf-8", "ignore")
+    return bool(head.startswith("<") and MARKUP_SNIFF_RE.search(head))
+
+
+def _decode_atob(value: str) -> str | None:
+    try:
+        decoded = base64.b64decode(value + "=" * (-len(value) % 4), altchars=b"-_" if "-" in value or "_" in value else None)
+        text = decoded.decode("utf-8")
+    except (binascii.Error, ValueError, UnicodeDecodeError):
+        return None
+    return text if text.isprintable() else None
+
+
+def scan_markup(data: bytes) -> dict:
+    """Busca capacidades activas en SVG/HTML como texto. No renderiza ni ejecuta."""
+    text = data.decode("utf-8", "ignore")
+    lowered_head = text[:4096].lower()
+    fmt = "svg" if "<svg" in lowered_head else "html" if ("<html" in lowered_head or "<!doctype html" in lowered_head) else "xml"
+    flags = [name for name, regex in MARKUP_HIGH.items() if regex.search(text)]
+    decoded = [d for d in (_decode_atob(m) for m in ATOB_RE.findall(text)) if d]
+    uris = []
+    for candidate in MARKUP_URL_RE.findall(text) + [d for d in decoded if d.lower().startswith(("http://", "https://"))]:
+        candidate = candidate.rstrip(".,;")
+        if candidate.startswith(NAMESPACE_PREFIXES) or candidate in uris:
+            continue
+        uris.append(candidate)
+        if len(uris) >= MAX_URIS:
+            break
+    review = ["external_links"] if uris else []
+    risk = "high" if flags else "review" if uris else "low"
+    return {"format": fmt, "risk": risk, "flags": flags, "review": review, "uris": uris,
+            "decoded_base64": decoded[:MAX_URIS], "size": len(data)}
 
 
 def msg_attachment_bytes(case_dir: Path) -> tuple[dict[int, bytes], str | None]:
@@ -250,18 +326,30 @@ def scan_case(case_dir: Path, msg_loader=msg_attachment_bytes) -> dict:
             results.append({**base, "status": "unverifiable", "integrity": integrity,
                             "detail": msg_problem or "adjunto no recuperable con hash coincidente"})
             continue
-        results.append({**base, "integrity": integrity, "origin": origin, **scan_bytes(data, row.get("magic_type"))})
+        result = {**base, "integrity": integrity, "origin": origin, **scan_bytes(data, row.get("magic_type"))}
+        if result.get("status") == "not_supported" and _is_active_type(row):
+            # Sin escáner local pero con posible contenido activo: lo resuelve REMnux, no se da por limpio.
+            result.update({"escalate": True, "reason": "tipo con posible contenido activo sin escáner local"})
+        results.append(result)
     order = {"high": 0, "incomplete": 1, "review": 2, "low": 3}
     scanned = [r for r in results if r.get("status") == "scanned"]
     overall = min((r["risk"] for r in scanned), key=lambda r: order[r], default="none")
-    if any(r.get("status") == "unverifiable" for r in results) and order.get(overall, 9) > order["incomplete"]:
+    if (any(r.get("status") == "unverifiable" or r.get("escalate") for r in results)
+            and order.get(overall, 9) > order["incomplete"]):
         overall = "incomplete"
     return {"scan_version": SCAN_VERSION, "overall_risk": overall,
             "scanned": len(scanned), "not_supported": sum(r.get("status") == "not_supported" for r in results),
             "integrity_alerts": integrity_alerts,
             "escalate_to_remnux": [r["name"] for r in results
-                                   if r.get("risk") in ("high", "incomplete") or r.get("status") == "unverifiable"],
+                                   if r.get("risk") in ("high", "incomplete") or r.get("status") == "unverifiable"
+                                   or r.get("escalate")],
             "files": results}
+
+
+def _is_active_type(row: dict) -> bool:
+    name = str(row.get("original_name") or row.get("stored_name") or "")
+    extension = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    return row.get("magic_type") in ACTIVE_MAGIC or extension in ACTIVE_EXTENSIONS
 
 
 def compact(report: dict) -> dict:
@@ -272,13 +360,14 @@ def compact(report: dict) -> dict:
             "files": [{"name": r.get("name"), "risk": r.get("risk", r.get("status")),
                        "flags": r.get("flags", []), "review": r.get("review", []),
                        "uris": len(r.get("uris", []))}
-                      for r in report["files"] if r.get("status") == "scanned"]}
+                      for r in report["files"] if r.get("status") == "scanned" or r.get("escalate")]}
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Escaneo estático local de los adjuntos de un expediente.")
     parser.add_argument("case_dir", type=Path, nargs="+", help="Directorio(s) de expediente en cases/")
     parser.add_argument("--full", action="store_true", help="Imprime el informe completo en vez del compacto")
+    parser.add_argument("--no-write", action="store_true", help="Solo imprime; no reescribe extracted/static_scan.json")
     args = parser.parse_args()
     # cmd.exe no expande comodines: se resuelven aquí (mismo comportamiento en Windows, macOS y Linux).
     case_dirs = []
@@ -294,8 +383,8 @@ def main() -> int:
             print(f"ERROR {case_dir}: {exc}", file=sys.stderr)
             status = 1
             continue
-        target = case_dir / "extracted" / "static_scan.json"
-        write_json(target, report)
+        if not args.no_write:
+            write_json(case_dir / "extracted" / "static_scan.json", report)
         print(json.dumps({"case": case_dir.name, **(report if args.full else compact(report))}, ensure_ascii=False))
     return status
 

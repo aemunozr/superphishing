@@ -48,6 +48,8 @@ flowchart TD
 
 - `engine/`: parsing, normalización, hashes, extracción, importación y registro determinístico.
 - `engine/graph_import.py` y `engine/revision.py`: colector de Microsoft Graph (sondeo incremental y revisión por fechas).
+- `engine/static_scan.py`: escaneo local de PDF y SVG/HTML; marca para escalar los tipos activos sin escáner local.
+- `engine/remnux_stage.py`: copia a REMnux (`copy` o `scp`) los adjuntos escalados durante la ingesta, antes de `READY`, y deja `extracted/remnux_stage.json` con la ruta que usa el agente. Las tools MCP de REMnux no ven la estación.
 - `deploy/ubuntu/`: servicio y timer systemd, `install.sh` y plantilla de credenciales para el servidor.
 - `.kiro/agents/`: un agente coordinador con permisos restringidos.
 - `.kiro/skills/`: cinco Skills generales: triage, email, URL, descubrimiento MCP e informe.

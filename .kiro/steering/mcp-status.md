@@ -15,7 +15,8 @@ No las consultes; registra la limitación en el informe y sigue:
 Funcionan:
 
 - `darknet`: `otx_domain`, `otx_hash` (suele devolver 0 pulsos, señal débil), `greynoise_check`, CIRCL, Tor.
-- `static-analysis` → `remnux` (Docker por HTTP). `upload_from_host` solo acepta rutas absolutas del propio host REMnux, no rutas de Windows.
+- `static-analysis` → `remnux` (Docker por HTTP). Las tools solo ven el host REMnux: `upload_from_host` no acepta rutas de la estación. Los adjuntos de riesgo llegan por `engine/remnux_stage.py` (en la ingesta); su ruta está en `extracted/remnux_stage.json` → `mcp_path`. La sesión puede caducar (`Server not initialized`): reintenta una vez tras reactivar el Power.
+- `darknet`: la sesión puede caducar (`Session not found`). Si falla tras reactivar el Power, usa `extracted/reputation.json` y GTI, y regístralo como limitación.
 - `exposure-hunting` → `falcon-mcp`, solo lectura (NG-SIEM, detecciones, intel).
 - `threat-intelligence` → `gti-agentic`, reservado a escalados o campañas.
 

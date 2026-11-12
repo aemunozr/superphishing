@@ -23,6 +23,7 @@ from common import (extract_domains, extract_html_evidence, extract_ips, extract
                     sniff_file_type, write_json)
 from case_store import create_case, get_case_by_hash
 from static_scan import compact as compact_static_scan, scan_case
+from remnux_stage import compact as compact_remnux_stage, stage_to_remnux
 
 MAX_MSG_BYTES = 150 * 1024 * 1024
 MAX_ATTACHMENTS = 200
@@ -402,6 +403,15 @@ def process_case(source: Path, case_id: str | None, output: Path, db_path: Path,
             static_report = scan_case(stage_case)
             write_json(stage_case / "extracted" / "static_scan.json", static_report)
             summary["static_scan"] = compact_static_scan(static_report)
+        remnux_report = None
+        if attachments and static_report.get("escalate_to_remnux"):
+            # Antes de READY: el agente encuentra la muestra ya en REMnux. Un fallo nunca aborta la ingesta.
+            try:
+                remnux_report = stage_to_remnux(stage_case, case_id=chosen_id)
+            except Exception as exc:
+                remnux_report = {"status": "error", "mode": None, "files": [], "detail": str(exc)[:400]}
+                write_json(stage_case / "extracted" / "remnux_stage.json", remnux_report)
+            summary["remnux_stage"] = compact_remnux_stage(remnux_report)
         write_json(stage_case / "summary.json", summary)
         eml_hash = sha256_file(stage_case / "normalized" / "message.eml")
         fingerprint_paths = {
@@ -434,11 +444,15 @@ def process_case(source: Path, case_id: str | None, output: Path, db_path: Path,
                           "body": "extracted/body.json", "urls": "extracted/urls.json",
                           "ips": "extracted/ips.json", "domains": "extracted/domains.json",
                           "attachments": "extracted/attachments.json",
-                          **({"static_scan": "extracted/static_scan.json"} if attachments else {})},
+                          **({"static_scan": "extracted/static_scan.json"} if attachments else {}),
+                          **({"remnux_stage": "extracted/remnux_stage.json"} if remnux_report else {})},
             "counts": {"urls": len(urls), "ips": len(ips), "domains": len(domains), "attachments": len(attachments)},
             "fingerprints": fingerprints,
-            "safety": {"network_used": False, "attachments_executed": False,
-                       "urls_opened": False, "archive_extraction_performed": False},
+            "safety": {"network_used": bool(remnux_report and remnux_report.get("mode") == "scp"
+                                            and remnux_report.get("status") in ("staged", "partial", "error")),
+                       "attachments_executed": False, "urls_opened": False,
+                       "archive_extraction_performed": False,
+                       "remnux_staging": (remnux_report or {}).get("status", "not_applicable")},
         }
         write_json(stage_case / "case.json", manifest)
         created_utc = manifest["created_utc"]

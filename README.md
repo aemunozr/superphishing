@@ -58,6 +58,7 @@ flowchart LR
     end
 
     GI -->|OAuth2 client credentials<br/>HTTPS| GR
+    IN -.->|"remnux_stage.py · adjuntos de riesgo<br/>scp o carpeta montada"| RM
     CS -. "copia de expedientes<br/>(hoy manual)" .-> CL
     PW -->|threat-intelligence| DN
     PW -->|threat-intelligence| GT
@@ -90,9 +91,11 @@ flowchart TD
         D{¿SHA-256 ya<br/>registrado?} -->|sí| X[duplicate<br/>no se crea caso]
         D -->|no| E[MSG → EML<br/>extract-msg]
         E --> F[Extracción<br/>headers, body, URLs,<br/>IPs, dominios, adjuntos]
-        F -->|hay adjuntos| SS[Escaneo estático local<br/>static_scan.py<br/>extracted/static_scan.json]
+        F -->|hay adjuntos| SS["Escaneo estático local<br/>static_scan.py · PDF, SVG/HTML<br/>extracted/static_scan.json"]
         F --> G[(Expediente cases/CASE-...<br/>+ índice SQLite)]
+        SS -->|escalate_to_remnux| RS["Envío a REMnux antes de READY<br/>remnux_stage.py · copy o scp<br/>SHA-256 verificado en destino"]
         SS --> G
+        RS --> G
         G -.->|paso aparte, CLI<br/>reputation.py, solo GET| RP[Reputación VirusTotal con caché<br/>extracted/reputation.json]
     end
 
@@ -103,7 +106,7 @@ flowchart TD
         CP -->|no| I[email-analysis<br/>SPF/DKIM/DMARC, Received]
         CP -->|hay URLs| J["url-analysis<br/>sintáctico + probe REMnux<br/>solo phishing o suspicious"]
         CP -->|IOCs relevantes| K["threat-intelligence<br/>reputation.json → Darknet → GTI<br/>omite fuentes de mcp-status"]
-        CP -->|adjuntos marcados<br/>como riesgo en static_scan| L[static-analysis<br/>REMnux]
+        CP -->|adjuntos marcados<br/>como riesgo en static_scan| L["static-analysis<br/>REMnux sobre mcp_path<br/>de remnux_stage.json"]
         J -->|salto descargable| L
         K -->|veredicto phishing/fraud/malware<br/>e IOC de red confirmados| O[exposure-hunting<br/>CrowdStrike Falcon, solo lectura,<br/>una vez por campaña]
         L -->|binario PE/ELF| M[reverse-engineering<br/>Ghidra, Radare2]
@@ -239,6 +242,28 @@ sudo systemctl enable --now superphishing-graph.timer
 
 El MCP `gti-agentic` (agente conversacional de Google Threat Intelligence) queda reservado para escalados de severidad alta o campañas: se le pasa solo el IOC mínimo y nunca contenido ni datos personales.
 
+#### Envío de adjuntos de riesgo a REMnux
+
+Las herramientas MCP de REMnux solo ven archivos de su propio host; no pueden leer la estación ni el servidor de ingesta. Por eso la ingesta, después de `static_scan.py` y antes de escribir `READY`, copia allí los adjuntos de `escalate_to_remnux` con `engine/remnux_stage.py`. Verifica el SHA-256 en destino y deja `extracted/remnux_stage.json` con la ruta que usa el agente (`mcp_path`). Cada muestra queda como `<REMNUX_STAGE_SUBDIR>/<CASE_ID>/<sha256>.bin`, sin extensión ejecutable. Nunca se abre ni se ejecuta.
+
+`static_scan.py` escala los PDF y SVG/HTML con contenido activo y los tipos sin escáner local que pueden ejecutar código (ejecutables, scripts, Office, contenedores, LNK, ISO). Las imágenes y los documentos limpios no se envían.
+
+| Variable | Uso |
+|---|---|
+| `REMNUX_STAGE_MODE` | `off` (por defecto), `copy` o `scp` |
+| `REMNUX_STAGE_DIR` | `copy`: carpeta local, montada o UNC que es `<muestras REMnux>/<SUBDIR>` |
+| `REMNUX_STAGE_SSH_TARGET`, `REMNUX_STAGE_REMOTE_DIR` | `scp`: `usuario@host` y ruta del host que es `<muestras REMnux>/<SUBDIR>` (bind mount del contenedor) |
+| `REMNUX_STAGE_SSH_PORT`, `REMNUX_STAGE_SSH_KEY`, `REMNUX_STAGE_KNOWN_HOSTS` | Opcionales; `StrictHostKeyChecking=yes`, sin contraseña interactiva |
+| `REMNUX_STAGE_SUBDIR`, `REMNUX_STAGE_SAMPLES_DIR` | Por defecto `cases` y `/home/remnux/files/samples` |
+
+Sin configurar, la ingesta registra `not_configured` y el agente lo deja en `pending_verifications`. Para expedientes ya creados:
+
+```bat
+:: Windows (cmd)
+.venv\Scripts\python engine\static_scan.py cases\CASE-...
+.venv\Scripts\python engine\remnux_stage.py --env-file .env cases\CASE-...
+```
+
 #### Revisión por fechas
 
 ```bash
@@ -252,7 +277,7 @@ Fechas en `DD-MM`, `DD-MM-AAAA` o `AAAA-MM-DD`, en hora local del servidor (o `-
 
 El intervalo se define en `OnUnitInactiveSec` de `deploy/ubuntu/superphishing-graph.timer` (5 minutos por defecto).
 
-El motor no usa red, no abre URLs, no ejecuta adjuntos y no invoca IA. Conserva el MSG como evidencia primaria.
+El motor no abre URLs, no ejecuta adjuntos y no invoca IA. Solo usa red en la descarga desde Graph, en `reputation.py` y, si se configura, en el envío de muestras a REMnux. Conserva el MSG como evidencia primaria.
 
 ## Ejecutar análisis
 
