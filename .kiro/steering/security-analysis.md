@@ -17,6 +17,16 @@ inclusion: always
 - Conserva intactos originales, EML, adjuntos, extracción y manifiesto `case.json`.
 - Responde en español y separa observado, inferido y no verificado.
 
+## Estructura de hallazgos para malware multi-stage
+
+Cuando un caso involucre malware con múltiples etapas (downloader → payload → C2):
+
+- **Cadena de infección**: Documenta cada etapa en `findings.json` → `malware_analysis.chain_stages` y `malware_analysis.stage_N`
+- **IOCs por etapa**: Cada etapa tiene sus propios hashes, URLs, y IOC. Agrúpalos en `iocs_for_blocking` con contexto ("Stage 1: VBS downloader", "Stage 3: Dropper")
+- **Técnicas de evasión**: Registra explícitamente en `findings.json` → `malware_analysis.anti_bot_techniques` y capacidades de cada etapa
+- **No sigas automáticamente**: Los C2 URLs encontrados en scripts deben registrarse pero **no seguirse sin autorización** del usuario
+- **Reporte detallado**: En `final-report.md`, incluye sección "Cadena de Infección" con descripción técnica de cada etapa
+
 ## Vocabulario fijo
 
 - Veredicto: `phishing`, `malware`, `fraud`, `suspicious`, `spam`, `legitimate`, `inconclusive`. Nunca `likely_*`; la duda va en `confidence`.

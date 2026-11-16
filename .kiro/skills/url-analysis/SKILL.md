@@ -37,3 +37,22 @@ U='<URL>'; D=/home/remnux/files/samples/probe_<CASE>; mkdir -p "$D"; UA='Mozilla
 10. Registra cada salto (código, host y URL sin query) con la hora y la fuente `REMnux curl`. Pasa los hosts nuevos de la cadena a `ioc-correlation`. Usa primero `extracted/reputation.json` o VirusTotal, y GTI solo una vez por campaña.
 11. Un 403/404, timeout, fallo DNS, challenge o certificado válido no prueba por sí solo ni malicia ni legitimidad.
 12. No envíes cookies, credenciales, cuerpos ni datos personales a servicios externos.
+
+## Técnicas anti-bot y gateways
+
+13. **Detección de anti-bot**: Si el servidor responde diferente según User-Agent o comportamiento (redirige a Google para bots, a phishing para víctimas), documéntalo:
+   - En `findings.json`, añade un hallazgo con `category: "infrastructure"`, `title: "Servidor con técnicas anti-bot"`, y lista las detecciones observadas (WebDriver, headless, automation frameworks, fingerprinting)
+   - En el reporte, incluye sección "Técnicas anti-bot" con detalles técnicos
+   - **No eludas** estas protecciones en análisis rutinarios; marca como `antibot_gate` y pasa a `pending_verifications` si se requiere análisis más profundo con navegador real
+   
+14. **Gateway condicional**: Si un servidor Azure/Cloudflare actúa como gateway que redirige condicionalmente:
+   - Documenta el flujo completo: URL original → gateway → destino (víctima) o honeypot (bot)
+   - Registra el hostname del gateway como IOC con contexto "Servidor de phishing con detección de bots"
+   - Si el gateway devuelve contenido diferente según User-Agent, prueba con el UA legítimo del malware (si lo conoces) solo con autorización del usuario
+   
+15. **Fingerprinting server-side**: Si detectas validación de:
+   - Browser fingerprint (canvas, WebGL, fonts, plugins)
+   - Timing/behavior patterns
+   - JavaScript execution checks
+   
+   Regístralo como técnica de evasión y documenta que el análisis automatizado es insuficiente.
