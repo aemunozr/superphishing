@@ -58,7 +58,7 @@ flowchart LR
     end
 
     GI -->|OAuth2 client credentials<br/>HTTPS| GR
-    IN -.->|"remnux_stage.py · adjuntos de riesgo<br/>scp o carpeta montada"| RM
+    IN -.->|"remnux_stage.py · adjuntos de riesgo<br/>WebDAV, scp o carpeta montada"| RM
     CS -. "copia de expedientes<br/>(hoy manual)" .-> CL
     PW -->|threat-intelligence| DN
     PW -->|threat-intelligence| GT
@@ -74,6 +74,7 @@ flowchart LR
 | `graph_import.py` + timer | Servidor Ubuntu | Sondeo incremental del buzón; solo descarga adjuntos `.msg` | `storage/` |
 | `revision.py` | Servidor o estación | Revisión manual por rango de fechas | `storage/` |
 | `ingest_msg.py` | Donde se ejecute la ingesta | MSG → EML, extracción, hashes, deduplicación | `cases/`, `storage/cases.db` |
+| `case_report.py` | Servidor o estación | Resumen de expedientes por ruta: total, veredictos y tabla de correos (solo lectura) | Archivo indicado en `--output` |
 | Agente `security-analyst` | Kiro (estación) | Triage, correlación, veredicto, informe | `analysis/` y `report/` del caso |
 | Powers / MCP | Servidores remotos | Reputación, análisis estático, reversing, dinámica | Ninguno en el proyecto |
 
@@ -93,7 +94,7 @@ flowchart TD
         E --> F[Extracción<br/>headers, body, URLs,<br/>IPs, dominios, adjuntos]
         F -->|hay adjuntos| SS["Escaneo estático local<br/>static_scan.py · PDF, SVG/HTML<br/>extracted/static_scan.json"]
         F --> G[(Expediente cases/CASE-...<br/>+ índice SQLite)]
-        SS -->|escalate_to_remnux| RS["Envío a REMnux antes de READY<br/>remnux_stage.py · copy o scp<br/>SHA-256 verificado en destino"]
+        SS -->|escalate_to_remnux| RS["Envío a REMnux antes de READY<br/>remnux_stage.py · webdav, copy o scp<br/>SHA-256 verificado"]
         SS --> G
         RS --> G
         G -.->|paso aparte, CLI<br/>reputation.py, solo GET| RP[Reputación VirusTotal con caché<br/>extracted/reputation.json]
@@ -209,7 +210,7 @@ python3 -m venv .venv
 
 `engine/graph_import.py` sondea el buzón y crea un expediente por cada adjunto `.msg` (el correo contenedor solo aporta metadatos del reporte). Es incremental: guarda un checkpoint en `storage/cases.db`, omite contenedores ya procesados y reintenta hasta 3 veces los que fallan.
 
-Las credenciales `GRAPH_*` se toman del entorno o, con `--env-file`, de un archivo `KEY=VALUE` (por ejemplo el `.env` local, ignorado por git). Del archivo solo se cargan variables `GRAPH_*`, nunca pisan las ya definidas en el entorno y no se imprimen sus valores. `revision.py` admite la misma opción.
+Las credenciales `GRAPH_*` se toman del entorno o, con `--env-file`, de un archivo `KEY=VALUE` (por ejemplo el `.env` local, ignorado por git). Del archivo solo se cargan variables `GRAPH_*`, `REMNUX_STAGE_*` y `WEBDAV_*` (estas dos para enviar adjuntos de riesgo a REMnux durante la ingesta). Nunca pisan las ya definidas en el entorno y no se imprimen sus valores. `revision.py` admite la misma opción.
 
 ```bash
 # macOS / Ubuntu
@@ -244,25 +245,43 @@ El MCP `gti-agentic` (agente conversacional de Google Threat Intelligence) queda
 
 #### Envío de adjuntos de riesgo a REMnux
 
-Las herramientas MCP de REMnux solo ven archivos de su propio host; no pueden leer la estación ni el servidor de ingesta. Por eso la ingesta, después de `static_scan.py` y antes de escribir `READY`, copia allí los adjuntos de `escalate_to_remnux` con `engine/remnux_stage.py`. Verifica el SHA-256 en destino y deja `extracted/remnux_stage.json` con la ruta que usa el agente (`mcp_path`). Cada muestra queda como `<REMNUX_STAGE_SUBDIR>/<CASE_ID>/<sha256>.bin`, sin extensión ejecutable. Nunca se abre ni se ejecuta.
+Las herramientas MCP de REMnux solo ven archivos de su propio host; no pueden leer la estación ni el servidor de ingesta. Por eso la ingesta, después de `static_scan.py` y antes de escribir `READY`, envía allí los adjuntos de `escalate_to_remnux` con `engine/remnux_stage.py` y deja `extracted/remnux_stage.json` con la ruta que usa el agente (`mcp_path`). Las muestras se guardan como `<sha256>.bin`, sin extensión ejecutable, y nunca se abren ni se ejecutan.
 
 `static_scan.py` escala los PDF y SVG/HTML con contenido activo y los tipos sin escáner local que pueden ejecutar código (ejecutables, scripts, Office, contenedores, LNK, ISO). Las imágenes y los documentos limpios no se envían.
 
+Hay tres modos de envío:
+
+| Modo | Cómo envía | Dónde queda la muestra | Verificación del SHA-256 |
+|---|---|---|---|
+| `webdav` | `PUT` por HTTPS con autenticación Basic, sin seguir redirecciones | `<muestras>/<SUBDIR>/<CASE_ID>/<sha256>.bin`; con `WEBDAV_FLAT=true`, `<muestras>/<CASE_ID>__<sha256>.bin` | Descarga con `GET` y compara. Con `WEBDAV_FLAT=true` el servidor solo admite `PUT`, así que queda `hash_verified: false` y el agente lo comprueba en REMnux antes de analizar |
+| `copy` | Copia a una carpeta local, montada o UNC | `<muestras>/<SUBDIR>/<CASE_ID>/<sha256>.bin` | Relee el archivo en destino |
+| `scp` | OpenSSH con `StrictHostKeyChecking=yes` | `<muestras>/<SUBDIR>/<CASE_ID>/<sha256>.bin` | `sha256sum` remoto |
+
 | Variable | Uso |
 |---|---|
-| `REMNUX_STAGE_MODE` | `off` (por defecto), `copy` o `scp` |
+| `REMNUX_STAGE_MODE` | `off`, `copy`, `scp` o `webdav`. Si no está definida y existe `WEBDAV_BASE_URL`, se usa `webdav`; si no, `off` |
+| `REMNUX_STAGE_SUBDIR`, `REMNUX_STAGE_SAMPLES_DIR` | Por defecto `cases` y `/opt/samples` (directorio de muestras dentro de REMnux) |
+| `WEBDAV_BASE_URL` | `webdav`: URL `https` que corresponde al directorio de muestras. Sin credenciales, query ni comillas |
+| `WEBDAV_USERNAME`, `WEBDAV_PASSWORD` | `webdav`: se definen juntas. Solo en `.env`, nunca en el código |
+| `WEBDAV_FLAT` | `webdav`: `true` si el servidor solo acepta `PUT` (sin `MKCOL` ni `GET`) |
+| `WEBDAV_TIMEOUT`, `WEBDAV_VERIFY_SSL` | Opcionales: 300 s y `true` |
 | `REMNUX_STAGE_DIR` | `copy`: carpeta local, montada o UNC que es `<muestras REMnux>/<SUBDIR>` |
 | `REMNUX_STAGE_SSH_TARGET`, `REMNUX_STAGE_REMOTE_DIR` | `scp`: `usuario@host` y ruta del host que es `<muestras REMnux>/<SUBDIR>` (bind mount del contenedor) |
-| `REMNUX_STAGE_SSH_PORT`, `REMNUX_STAGE_SSH_KEY`, `REMNUX_STAGE_KNOWN_HOSTS` | Opcionales; `StrictHostKeyChecking=yes`, sin contraseña interactiva |
-| `REMNUX_STAGE_SUBDIR`, `REMNUX_STAGE_SAMPLES_DIR` | Por defecto `cases` y `/home/remnux/files/samples` |
+| `REMNUX_STAGE_SSH_PORT`, `REMNUX_STAGE_SSH_KEY`, `REMNUX_STAGE_KNOWN_HOSTS` | `scp`, opcionales; sin contraseña interactiva |
 
-Sin configurar, la ingesta registra `not_configured` y el agente lo deja en `pending_verifications`. Para expedientes ya creados:
+Sin configurar, la ingesta registra `not_configured` y el agente lo deja en `pending_verifications`. Para comprobar el acceso al WebDAV y para expedientes ya creados:
 
 ```bat
 :: Windows (cmd)
+.venv\Scripts\python engine\remnux_stage.py --check --env-file .env
 .venv\Scripts\python engine\static_scan.py cases\CASE-...
 .venv\Scripts\python engine\remnux_stage.py --env-file .env cases\CASE-...
+.venv\Scripts\python engine\remnux_stage.py --env-file .env --force cases\CASE-...   :: reenvía aunque conste como enviado
 ```
+
+`--check` hace `PROPFIND` sobre la URL base. Con `WEBDAV_FLAT=true` sube en su lugar el archivo fijo `superphishing-check.txt`, que hay que buscar en REMnux para confirmar que el WebDAV escribe en el directorio de muestras.
+
+En el despliegue actual, `/data_upload/` del WebDAV corresponde a `/opt/samples` en REMnux (bind mount de `/opt/mcp/samples` del anfitrión). Las tools `get_file_info` y `analyze_file` del MCP solo aceptan rutas dentro de `/home/remnux/files/samples` y rechazan `/opt/samples` con `INVALID_PATH`; para estas muestras el agente usa `run_tool` con la ruta absoluta.
 
 #### Revisión por fechas
 
@@ -303,6 +322,38 @@ cases/CASE-.../
 ```
 
 Consulta un expediente con `.venv/bin/python engine/case_cli.py CASE-...`.
+
+### Resumen de expedientes
+
+`engine/case_report.py` recorre una ruta y genera un resumen con el total de correos, el número por veredicto y una tabla con fecha del correo, origen, asunto y veredicto, ordenada por fecha. Toma como expediente cada carpeta con `summary.json` (de donde lee fecha, remitente y asunto) y lee el veredicto de `analysis/state.json`; si no existe, cuenta como `pending`. Es de solo lectura y no usa red.
+
+```bat
+:: Windows (cmd)
+.venv\Scripts\python engine\case_report.py cases\2026\11 --output storage\resumen-noviembre.md
+.venv\Scripts\python engine\case_report.py cases --desde 2026-11-01 --hasta 2026-11-30 --formato csv --incluir-caso --output storage\noviembre.csv
+```
+
+| Opción | Uso |
+|---|---|
+| `ruta` | Carpeta raíz (`cases`, `cases\2026\11`) o un expediente |
+| `--desde`, `--hasta` | Filtro por fecha del correo, `AAAA-MM-DD`, ambas incluidas. Los correos sin fecha válida quedan fuera |
+| `--formato` | `md` (por defecto), `tsv` o `csv`. CSV y TSV se escriben en UTF-8 con BOM para Excel |
+| `--incluir-caso` | Añade la columna con el ID del expediente |
+| `--titulo` | Título del informe Markdown |
+| `--output` | Archivo de salida; sin esta opción, imprime en consola |
+
+Filtrar por carpeta incluye correos de fecha anterior que se reportaron en ese periodo. Para filtrar por la fecha real del correo, usa `--desde` y `--hasta`.
+
+### Reimportar expedientes borrados
+
+La ingesta deduplica por SHA-256 del MSG usando `storage/cases.db`, así que borrar la carpeta de un expediente no basta para volver a importarlo. `case_store.py --purge-missing` lista los casos indexados cuya carpeta ya no existe; con `--apply` los elimina del índice. Después, `revision.py --reprocesar` los vuelve a descargar.
+
+```bat
+:: Windows (cmd)
+.venv\Scripts\python engine\case_store.py --purge-missing            :: solo lista
+.venv\Scripts\python engine\case_store.py --purge-missing --apply    :: borra esas filas del índice
+.venv\Scripts\python engine\revision.py 17-11 --reprocesar --env-file .env
+```
 
 ## Pruebas
 
