@@ -9,7 +9,7 @@ TOOLS = Path(__file__).resolve().parents[1] / "engine"
 sys.path.insert(0, str(TOOLS))
 
 from common import sha256_bytes
-from remnux_stage import StageConfigError, load_config, stage_to_remnux
+from remnux_stage import StageConfigError, load_config, stage_to_remnux, webdav_check
 
 SAMPLE = b'<svg xmlns="http://www.w3.org/2000/svg"><script>location.href="https://evil.example.test"</script></svg>'
 SHA = sha256_bytes(SAMPLE)
@@ -74,7 +74,7 @@ class RemnuxStageTests(unittest.TestCase):
             staged = share / CASE_ID / f"{SHA}.bin"
             self.assertEqual(staged.read_bytes(), SAMPLE)
         self.assertEqual(report["status"], "staged")
-        self.assertEqual(report["samples_dir"], f"/home/remnux/files/samples/cases/{CASE_ID}")
+        self.assertEqual(report["samples_dir"], f"/opt/samples/cases/{CASE_ID}")
         self.assertEqual([f["name"] for f in report["files"]], ["pago.svg"])     # solo lo escalado
 
     def test_scp_mode_uses_safe_arguments_and_verifies_remote_hash(self):
@@ -135,6 +135,113 @@ class RemnuxStageTests(unittest.TestCase):
             with self.assertRaises(StageConfigError):
                 load_config(env)
         self.assertIsNone(load_config({}))
+
+
+class FakeDav:
+    """Simula un servidor WebDAV en memoria: MKCOL, PUT, GET y PROPFIND."""
+
+    def __init__(self, tamper: bool = False, put_status: int | None = None, propfind_status: int = 207):
+        self.calls, self.files, self.dirs = [], {}, set()
+        self.tamper, self.put_status, self.propfind_status = tamper, put_status, propfind_status
+
+    def __call__(self, method, url, data=None, headers=None):
+        self.calls.append((method, url, dict(headers or {})))
+        if method == "MKCOL":
+            if url in self.dirs:
+                return 405, {}, b""
+            self.dirs.add(url)
+            return 201, {}, b""
+        if method == "PUT":
+            if self.put_status:
+                return self.put_status, {}, b""
+            self.files[url] = b"alterado" if self.tamper else data
+            return 201, {}, b""
+        if method == "GET":
+            return (200, {}, self.files[url]) if url in self.files else (404, {}, b"")
+        if method == "PROPFIND":
+            return self.propfind_status, {"DAV": "1,2"}, b"<multistatus/>"
+        return 405, {}, b""
+
+
+DAV_BASE = "https://dav.lab.test/data_upload"
+DAV_ENV = {"WEBDAV_BASE_URL": DAV_BASE + "/", "WEBDAV_USERNAME": "u", "WEBDAV_PASSWORD": "p"}
+
+
+class WebdavStageTests(unittest.TestCase):
+    def test_webdav_is_selected_from_webdav_vars_and_validated(self):
+        config = load_config(DAV_ENV)
+        self.assertEqual(config["mode"], "webdav")
+        self.assertEqual(config["webdav"]["base_url"], DAV_BASE)
+        self.assertTrue(config["webdav"]["verify_ssl"])
+        self.assertIsNone(load_config({**DAV_ENV, "REMNUX_STAGE_MODE": "off"}))
+
+    def test_unsafe_webdav_configuration_is_rejected(self):
+        for env in ({"WEBDAV_BASE_URL": DAV_BASE + '/"'},                       # comilla sobrante de .env
+                    {"WEBDAV_BASE_URL": "http://dav.lab.test/x"},               # sin TLS
+                    {"WEBDAV_BASE_URL": "https://u:p@dav.lab.test/x"},          # credencial en la URL
+                    {"WEBDAV_BASE_URL": DAV_BASE, "WEBDAV_USERNAME": "u"},      # usuario sin contraseña
+                    {**DAV_ENV, "WEBDAV_TIMEOUT": "0"},
+                    {"REMNUX_STAGE_MODE": "webdav"}):
+            with self.assertRaises(StageConfigError, msg=env):
+                load_config(env)
+
+    def test_webdav_upload_creates_folders_and_verifies_hash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case = make_case(Path(tmp))
+            dav = FakeDav()
+            report = stage_to_remnux(case, environ=DAV_ENV, http=dav)
+        self.assertEqual(report["status"], "staged")
+        target = f"{DAV_BASE}/cases/{CASE_ID}/{SHA}.bin"
+        self.assertEqual(dav.files[target], SAMPLE)
+        self.assertEqual([c[0] for c in dav.calls], ["MKCOL", "MKCOL", "PUT", "GET"])
+        self.assertEqual(report["files"][0]["mcp_path"], f"cases/{CASE_ID}/{SHA}.bin")
+        self.assertNotIn("Authorization", json.dumps(report))
+
+    def test_webdav_existing_folders_and_errors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case = make_case(Path(tmp))
+            dav = FakeDav()
+            dav.dirs.update({f"{DAV_BASE}/cases/", f"{DAV_BASE}/cases/{CASE_ID}/"})
+            self.assertEqual(stage_to_remnux(case, environ=DAV_ENV, http=dav)["status"], "staged")
+            tampered = stage_to_remnux(case, environ=DAV_ENV, http=FakeDav(tamper=True), force=True)
+            denied = stage_to_remnux(case, environ=DAV_ENV, http=FakeDav(put_status=401), force=True)
+            redirected = stage_to_remnux(case, environ=DAV_ENV, http=FakeDav(put_status=302), force=True)
+        self.assertIn("no coincide", tampered["files"][0]["detail"])
+        self.assertIn("401", denied["files"][0]["detail"])
+        self.assertIn("redirección", redirected["files"][0]["detail"])
+
+    def test_webdav_check_only_uses_propfind(self):
+        dav = FakeDav()
+        result = webdav_check(load_config(DAV_ENV), http=dav)
+        self.assertTrue(result["ok"])
+        self.assertEqual({c[0] for c in dav.calls}, {"PROPFIND"})
+        self.assertEqual(dav.calls[0][2]["Depth"], "0")
+        denied = webdav_check(load_config(DAV_ENV), http=FakeDav(propfind_status=401))
+        self.assertFalse(denied["ok"])
+        self.assertIn("credenciales", denied["checks"][0]["detail"])
+
+    def test_flat_mode_only_puts_to_root_and_marks_hash_unverified(self):
+        env = {**DAV_ENV, "WEBDAV_FLAT": "true"}
+        with tempfile.TemporaryDirectory() as tmp:
+            case = make_case(Path(tmp))
+            dav = FakeDav()
+            report = stage_to_remnux(case, environ=env, http=dav)
+        self.assertEqual(report["status"], "staged")
+        self.assertEqual([c[0] for c in dav.calls], ["PUT"])
+        self.assertEqual(dav.files[f"{DAV_BASE}/{CASE_ID}__{SHA}.bin"], SAMPLE)
+        entry = report["files"][0]
+        self.assertEqual(entry["mcp_path"], f"{CASE_ID}__{SHA}.bin")
+        self.assertFalse(entry["hash_verified"])
+        self.assertEqual(report["samples_dir"], "/opt/samples")
+
+    def test_flat_check_puts_fixed_probe_file(self):
+        dav = FakeDav()
+        result = webdav_check(load_config({**DAV_ENV, "WEBDAV_FLAT": "true"}), http=dav)
+        self.assertTrue(result["ok"])
+        self.assertEqual([(c[0], c[1]) for c in dav.calls], [("PUT", f"{DAV_BASE}/superphishing-check.txt")])
+        denied = webdav_check(load_config({**DAV_ENV, "WEBDAV_FLAT": "true"}), http=FakeDav(put_status=403))
+        self.assertFalse(denied["ok"])
+        self.assertIn("403", denied["detail"])
 
 
 if __name__ == "__main__":
