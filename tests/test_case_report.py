@@ -69,6 +69,36 @@ class CaseReportTests(unittest.TestCase):
         self.assertIn("Total\t4", lines)
         self.assertEqual(before, {p: p.read_bytes() for p in self.root.rglob("*.json")})
 
+    def _set_findings(self, rel_case: str, payload) -> None:
+        path = self.root / rel_case / "analysis" / "findings.json"
+        path.write_text(payload if isinstance(payload, str) else json.dumps(payload), encoding="utf-8")
+
+    def test_campaign_column_summary_and_legacy_string(self):
+        self._set_findings("2026/11/13/CASE-A", {"campaign": {
+            "id": "CMP-202611-01", "name": "Amenazas legales", "primary_case": "CASE-A", "role": "primary"}})
+        self._set_findings("2026/11/20/CASE-D", {"campaign": "G01"})
+        rows = case_report.collect(self.root)
+        by_id = {r["case_id"]: r for r in rows}
+        self.assertEqual(by_id["CASE-A"]["campaign"], "CMP-202611-01")
+        self.assertEqual(by_id["CASE-D"]["campaign"], "G01")          # formato heredado
+        camps = {c["id"]: c for c in case_report.count_campaigns(rows)}
+        self.assertEqual(camps["CMP-202611-01"]["primary"], "CASE-A")
+        text = case_report.render_markdown(rows, self.root, include_campaign=True)
+        self.assertIn("**Campañas registradas:** 2", text)
+        self.assertIn("| Fecha | Origen | Asunto | Veredicto | Campaña |", text)
+        self.assertIn("| CMP-202611-01 | Amenazas legales | CASE-A | 1 | phishing 1 |", text)
+
+    def test_invalid_json_and_phishing_without_campaign_are_reported(self):
+        self._set_findings("2026/11/13/CASE-A", '{"campaign": {"id": "CMP-1",}')   # coma sobrante
+        rows = case_report.collect(self.root)
+        issues = case_report.quality_issues(rows)
+        self.assertEqual(issues["invalid_json"], [("CASE-A", "findings.json")])
+        self.assertEqual(issues["malicious_without_campaign"], ["CASE-A"])
+        self.assertIn("JSON mal formado", case_report.render_markdown(rows, self.root))
+        out = self.root / "r.md"
+        self.assertEqual(case_report.main([str(self.root), "--estricto", "--output", str(out)]), 1)
+        self.assertEqual(case_report.main([str(self.root), "--output", str(out)]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

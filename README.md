@@ -339,8 +339,18 @@ Consulta un expediente con `.venv/bin/python engine/case_cli.py CASE-...`.
 | `--desde`, `--hasta` | Filtro por fecha del correo, `AAAA-MM-DD`, ambas incluidas. Los correos sin fecha válida quedan fuera |
 | `--formato` | `md` (por defecto), `tsv` o `csv`. CSV y TSV se escriben en UTF-8 con BOM para Excel |
 | `--incluir-caso` | Añade la columna con el ID del expediente |
+| `--incluir-campana` | Añade la columna con el ID de campaña |
+| `--estricto` | Devuelve código 1 si hay `state.json` o `findings.json` mal formados, o casos `phishing`, `malware` o `fraud` sin campaña |
 | `--titulo` | Título del informe Markdown |
 | `--output` | Archivo de salida; sin esta opción, imprime en consola |
+
+Si algún expediente tiene campaña, el informe añade una sección con cada campaña, su caso principal, el número de correos y su reparto por veredicto. La campaña se lee de `analysis/findings.json`, que debe incluir este bloque:
+
+```json
+"campaign": {"id": "CMP-202611-01", "name": "...", "primary_case": "CASE-...", "role": "primary|member", "basis": "..."}
+```
+
+Los identificadores siguen el formato `CMP-AAAAMM-NN` y son estables dentro del mes. Una campaña de un solo caso tiene su propio ID, con `role: primary`. Si un valor anterior de `campaign` no seguía este formato, se conserva en `campaign_legacy`.
 
 Filtrar por carpeta incluye correos de fecha anterior que se reportaron en ese periodo. Para filtrar por la fecha real del correo, usa `--desde` y `--hasta`.
 
